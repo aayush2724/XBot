@@ -1,0 +1,112 @@
+"""Days, quests, journal entries, check-ins and day decisions."""
+
+from __future__ import annotations
+
+from datetime import date
+
+from fastapi import APIRouter, Depends, HTTPException, status
+
+from xbot.api.deps import SessionDep, SettingsDep, require_auth
+from xbot.api.schemas import (
+    CheckinAnswerIn,
+    CheckinOut,
+    DayView,
+    EntryIn,
+    EntryOut,
+    NoPostIn,
+    QuestOut,
+    QuestsIn,
+    QuestStatusIn,
+)
+from xbot.db.models import Day, DayDecision
+from xbot.services import days as svc
+
+router = APIRouter(tags=["days"], dependencies=[Depends(require_auth)])
+
+
+def _view(local_date: date, day: Day | None) -> DayView:
+    if day is None:
+        return DayView(
+            local_date=local_date,
+            exists=False,
+            decision=DayDecision.pending,
+            no_post_reason=None,
+            decided_at=None,
+            quests=[],
+            entries=[],
+            checkins=[],
+        )
+    return DayView(
+        local_date=day.local_date,
+        exists=True,
+        decision=day.decision,
+        no_post_reason=day.no_post_reason,
+        decided_at=day.decided_at,
+        quests=[QuestOut.model_validate(q) for q in day.quests],
+        entries=[EntryOut.model_validate(e) for e in day.entries],
+        checkins=[CheckinOut.model_validate(c) for c in day.checkins],
+    )
+
+
+@router.get("/days/today", response_model=DayView)
+async def today(session: SessionDep, settings: SettingsDep) -> DayView:
+    d = svc.local_today(settings)
+    return _view(d, await svc.get_day(session, d))
+
+
+@router.get("/days/{local_date}", response_model=DayView)
+async def day(local_date: date, session: SessionDep) -> DayView:
+    return _view(local_date, await svc.get_day(session, local_date))
+
+
+@router.put("/days/{local_date}/quests", response_model=DayView)
+async def put_quests(local_date: date, body: QuestsIn, session: SessionDep) -> DayView:
+    try:
+        texts = body.cleaned()
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
+    return _view(local_date, await svc.set_quests(session, local_date, texts))
+
+
+@router.patch("/quests/{quest_id}", response_model=QuestOut)
+async def patch_quest(quest_id: int, body: QuestStatusIn, session: SessionDep) -> QuestOut:
+    try:
+        quest = await svc.set_quest_status(session, quest_id, body.status)
+    except svc.NotFound as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    return QuestOut.model_validate(quest)
+
+
+@router.post("/days/{local_date}/entries", response_model=EntryOut, status_code=201)
+async def post_entry(local_date: date, body: EntryIn, session: SessionDep) -> EntryOut:
+    entry = await svc.add_entry(session, local_date, body.kind, body.content, body.source)
+    return EntryOut.model_validate(entry)
+
+
+@router.delete("/entries/{entry_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_entry(entry_id: int, session: SessionDep) -> None:
+    try:
+        await svc.delete_entry(session, entry_id)
+    except svc.NotFound as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+
+
+@router.get("/days/{local_date}/checkins", response_model=list[CheckinOut])
+async def checkins(local_date: date, session: SessionDep) -> list[CheckinOut]:
+    day_row = await svc.get_day(session, local_date)
+    return [CheckinOut.model_validate(c) for c in (day_row.checkins if day_row else [])]
+
+
+@router.post("/checkins/{checkin_id}/answer", response_model=CheckinOut)
+async def answer(checkin_id: int, body: CheckinAnswerIn, session: SessionDep) -> CheckinOut:
+    try:
+        row = await svc.answer_checkin(session, checkin_id, body.answer)
+    except svc.NotFound as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    return CheckinOut.model_validate(row)
+
+
+@router.post("/days/{local_date}/no-post", response_model=DayView)
+async def no_post(local_date: date, body: NoPostIn, session: SessionDep) -> DayView:
+    await svc.mark_no_post(session, local_date, body.reason)
+    return _view(local_date, await svc.get_day(session, local_date))
