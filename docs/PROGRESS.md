@@ -20,3 +20,23 @@
   token handling; GitHub author matching by email or login; sentence-coverage grounding guard.
 - Verified Python 3.14 compatibility of every backend dependency and the SDK `parse` signature.
 - Owner asked about cloning KryxAI; advised to keep XBot's grounded-pipeline angle instead.
+
+## 2026-11-08 — M0 Scaffold complete
+
+**Implemented.** `backend/` uv project (Python 3.14); `xbot.config.Settings` (pydantic-settings,
+repo-root `.env`, vendor-named credential vars, refuses example secrets outside tests);
+structlog with secret redaction; async SQLAlchemy `Database`; Alembic async env with baseline
+migration; FastAPI app factory with lifespan, CSRF header guard, session-cookie login
+(`/api/auth/login|logout|me`), `/api/health`; `docker-compose.yml` (Postgres 18 on 127.0.0.1:5433
+with an init script that also creates `xbot_test`), `Dockerfile`, `.env.example`, README quick start.
+
+**Decision.** Local PostgreSQL 18 on 5432 requires a password I do not have, so dev and tests use
+the compose database on 5433. Switch by setting `XBOT_DATABASE_URL`.
+
+**Tests.** 8 passing: health, login paths, tamper-proof cookie, CSRF guard, startup refusals.
+ruff and mypy (strict) clean. Real uvicorn smoke test: health `db: ok`, wrong password 401, login
+200, `/api/auth/me` 200 with cookie. `docker compose config` valid.
+
+**Limitations.** No tables yet; Dockerfile has no frontend stage until M7.
+
+**Next.** M1: days, quests, journal, check-ins, preferences, CLI.

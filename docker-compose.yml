@@ -1,0 +1,37 @@
+services:
+  db:
+    image: postgres:18-alpine
+    container_name: xbot-db
+    environment:
+      POSTGRES_USER: xbot
+      POSTGRES_PASSWORD: xbot
+      POSTGRES_DB: xbot
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - xbot-pgdata:/var/lib/postgresql
+      - ./docker/initdb:/docker-entrypoint-initdb.d:ro,z
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U xbot -d xbot"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  app:
+    build: .
+    container_name: xbot-app
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      XBOT_DATABASE_URL: postgresql+psycopg://xbot:xbot@db:5432/xbot
+      XBOT_HOST: 0.0.0.0
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  xbot-pgdata:

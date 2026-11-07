@@ -20,7 +20,7 @@ Legend: [ ] pending · [~] in progress · [x] done · [!] blocked on user
 - [x] Milestones with deliverables, dependencies, acceptance criteria (`docs/phase-3-milestones.md`)
 
 ## Phase 4 — Core MVP
-- [ ] Backend scaffold, config, DB, migrations
+- [x] M0 Backend scaffold, config, DB, migrations, auth, health, compose (8 tests)
 - [ ] Journal + quests + check-ins
 - [ ] GitHub source
 - [ ] Stage 1 activity understanding
