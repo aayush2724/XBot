@@ -9,3 +9,5 @@
   PKCE for X, no links by default, diffs opt-in per repo, no Redis/LangGraph in MVP.
 - Deliverables: `docs/phase-1-discovery.md`, `TODO.md`, `.gitignore`.
 - Waiting on: LLM configuration, hosting model, GitHub privacy scope.
+- Decisions confirmed by owner: Claude Opus 5 for every stage; runs locally now with catch-up
+  scheduling, VPS later; GitHub source reads public repositories only.

@@ -1,6 +1,6 @@
 # XBot — Phase 1: Product Discovery
 
-Date: 2026-11-08 · Status: **draft, awaiting confirmation of 3 open questions (section 9)**
+Date: 2026-11-08 · Status: **confirmed** (open questions resolved, see section 9)
 
 XBot is a single-user, build-in-public assistant. Every day it collects what its owner actually
 did (journal entries, GitHub activity, quick check-ins), finds the one thing worth sharing,
@@ -50,7 +50,7 @@ Non-negotiable properties pulled from the brief:
 | A2 | What is a "day"? | A calendar date in `Asia/Kolkata`. All entities key on `local_date`. Server stores UTC timestamps. |
 | A3 | Morning "daily quests" vs activity | Quests are *intentions*. They are shown to the LLM only as context labelled "planned, not confirmed". A quest becomes an activity only when you mark it done or a journal entry / commit evidences it. |
 | A4 | "Weekly progress summaries" category | Data model supports it (posts link to a `local_date`; a week is a range query). Generation of weekly summaries is **post-MVP**. |
-| A5 | How much GitHub detail goes to the LLM | Commit messages, repo name, file paths, and line stats always. Diffs are opt-in per repo. Private repos: see open question Q3. |
+| A5 | How much GitHub detail goes to the LLM | Public repos only (Q3). Commit messages, repo name, file paths, and line stats always; diffs opt-in per repo. |
 | A6 | "Fits within X's posting limits" | Configurable `max_post_chars`, default 280. If your account has Premium you can raise it. The evaluator rejects over-length drafts. |
 | A7 | Threads | Out of MVP. Publisher interface accepts a list of segments so threads can be added without redesign. |
 | A8 | "Memory and personalization" | Structured preferences + published-post history + rated drafts fed into prompts. No fine-tuning. Phrase-frequency tracking is simple n-gram counting over published posts. |
@@ -189,15 +189,13 @@ Nothing else. No Redis, no queue, no LangGraph.
 - **Persistence:** PostgreSQL only. Encrypted-at-rest OAuth tokens (Fernet key from `.env`).
 - **Packaging:** one `docker-compose.yml` with `db` and `app`.
 
-## 9. Open questions (these change the design; everything else proceeds on the defaults above)
+## 9. Open questions — resolved 2026-11-08
 
-- **Q1 — LLM configuration.** Opus 5 everywhere (recommended, ~$6–12/month), mixed Opus/Sonnet,
-  Sonnet everywhere, or a different provider?
-- **Q2 — Where it runs.** Local machine for now with catch-up logic and a VPS later
-  (recommended), always-on VPS from day one, or local only?
-- **Q3 — GitHub privacy.** Commit messages and paths from all repos including private, with
-  diffs only for public repos (recommended); public repos only; or everything including private
-  diffs?
+| # | Question | Decision |
+|---|---|---|
+| Q1 | LLM configuration | **Claude Opus 5 for every stage** (`claude-opus-5`). Provider stays abstracted. |
+| Q2 | Where it runs | **Local machine now, VPS later.** Scheduler does catch-up on startup; Docker Compose kept deploy-ready; reverse-proxy work deferred. |
+| Q3 | GitHub scope | **Public repositories only.** Private activity is never fetched; the GitHub source filters on `repo.private == false` at the API level. Diffs for public repos are still opt-in per repo. |
 
 ## 10. Your action items (not needed until Phase 4/5)
 

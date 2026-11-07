@@ -6,7 +6,7 @@ Legend: [ ] pending · [~] in progress · [x] done · [!] blocked on user
 - [x] Inspect environment (Python 3.14, Node 20, Postgres 18 local, Docker, gh auth)
 - [x] Verify X API pricing model and OAuth 2.0 flow
 - [x] Write `docs/phase-1-discovery.md`
-- [!] Confirm Q1 (LLM config), Q2 (hosting model), Q3 (GitHub privacy)
+- [x] Confirm Q1 (Opus 5 everywhere), Q2 (local now, VPS later), Q3 (public repos only)
 
 ## Phase 2 — Architecture
 - [ ] System architecture + module boundaries (`docs/phase-2-architecture.md`)
