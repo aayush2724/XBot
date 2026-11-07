@@ -1,6 +1,6 @@
 # XBot — Phase 2: Architecture
 
-Date: 2026-11-08 · Status: draft for advisor review, then locked
+Date: 2026-11-08 · Status: **locked** (revision 2, after advisor review; see §14)
 
 Decisions carried in from Phase 1: Claude Opus 5 for every stage, runs on the owner's machine now
 with a deploy-ready Docker Compose for a VPS later, GitHub public repositories only, one post per
@@ -11,11 +11,12 @@ day maximum, approval-gated publishing.
 ## 1. System overview
 
 ```
-                ┌──────────────────────────── FastAPI process ─────────────────────────────┐
+                ┌──────────────────────────── FastAPI process (1 worker) ──────────────────┐
                 │                                                                          │
  Browser ──────►│  api/         (REST + session auth, serves built frontend in prod)        │
  CLI (xbot) ───►│                                                                          │
-                │  scheduler/   APScheduler, Postgres-backed state, catch-up on startup     │
+                │  scheduler/   APScheduler (in-memory jobs) + Postgres advisory lock       │
+                │               leader; 10-min catch-up tick; state in scheduler_state      │
                 │        │                                                                 │
                 │        ▼                                                                 │
                 │  ingestion/   ActivitySource[] ──► DayContext                            │
@@ -29,90 +30,84 @@ day maximum, approval-gated publishing.
                 │  publishing/   approve ─► Publisher (X OAuth2 | Mock) ─► published_posts │
                 │                                                                          │
                 └───────────────────────────────┬──────────────────────────────────────────┘
-                                                │ SQLAlchemy 2 / psycopg 3
+                                                │ SQLAlchemy 2 async / psycopg 3
                                                 ▼
                                            PostgreSQL 18
 ```
 
 One process, one database. The scheduler lives inside the API process so a single `uv run` (or
-one container) runs everything. No Redis, no queue, no agent framework.
+one container) runs everything. No Redis, no queue, no agent framework. The process is started
+with exactly one uvicorn worker; a Postgres advisory lock makes a second accidental instance
+(`--workers 2`, `--reload` child, a stray terminal) a passive follower that never schedules.
 
 ## 2. Technology choices and why
 
 | Layer | Choice | Why this and not the alternative |
 |---|---|---|
-| Backend | Python 3.14, FastAPI 0.162, Pydantic v2, SQLAlchemy 2.1, Alembic, psycopg 3 | Matches the brief; Pydantic models double as LLM output schemas, so one definition serves validation, persistence, and prompts. |
-| LLM | `anthropic` SDK 2.x, `client.messages.parse` with Pydantic schemas, adaptive thinking, prompt caching | Structured outputs remove JSON-repair code. Caching makes the frozen voice/persona prefix ~10× cheaper after the first stage call of the day. |
-| Orchestration | Plain Python, one `DailyPipeline` class | The graph is linear with one bounded loop. LangGraph would add a dependency and a checkpointer for no gain. Each stage persists its own row, which is all the "checkpointing" we need. |
-| Scheduling | APScheduler 3.11 `AsyncIOScheduler` in the app lifespan + `scheduler_state` table | Lightweight, no broker. Catch-up logic is ours, in ~40 lines, and testable. |
-| DB | PostgreSQL only (local 18.6 for dev, container for deploy) | Already running on this machine; JSONB for stage outputs; `UNIQUE(local_date)` gives duplicate prevention at the storage layer. |
-| Frontend | Vite 8 + React 19 + TypeScript + Tailwind 4 + TanStack Query, built to static files served by FastAPI | Single-user dashboard needs no SSR or SEO. One runtime in production. Next.js can replace it later without touching the API. |
-| Auth | Password from `.env`, signed HTTP-only `SameSite=Strict` cookie, server bound to `127.0.0.1` by default | Single user. A reverse proxy with TLS is added at VPS time, not before. |
+| Backend | Python 3.14, FastAPI 0.162, Pydantic v2, SQLAlchemy 2.1 **async**, Alembic, psycopg 3 (async) | Verified installing on 3.14 today. Async end to end: LLM and HTTP calls are the long waits, and one event loop handles API, scheduler, and pipeline without thread hand-offs. Sessions are short-lived: **never held across an LLM or HTTP call**. |
+| LLM | `anthropic` SDK 2.6, `client.messages.parse` with Pydantic schemas, adaptive thinking, `max_tokens=16000` | Structured outputs remove JSON-repair code. `stop_reason == "max_tokens"` is handled as a stage failure with a retry at `effort="medium"`. Verified today that `parse` accepts `output_format`, `output_config`, `thinking`, `system`. |
+| Orchestration | Plain Python, one `DailyPipeline` class, run as an asyncio background task | The graph is linear with one bounded loop. Each stage persists its own row, which is all the checkpointing we need. |
+| Scheduling | APScheduler 3.11 `AsyncIOScheduler`, in-memory job store, started inside the FastAPI lifespan (it needs the running loop), `scheduler_state` table, `pg_try_advisory_lock` for leadership | No broker. Laptops sleep through 20:00 and APScheduler silently drops misfired jobs, so the real trigger is a **10-minute catch-up tick** that claims work atomically in Postgres. |
+| DB | PostgreSQL only (local 18.6 for dev, container for deploy) | JSONB for stage outputs; unique and partial-unique indexes give duplicate prevention at the storage layer. |
+| Frontend | Vite 8 + React 19 + TypeScript + Tailwind 4 + TanStack Query, static files served by FastAPI | Single-user dashboard needs no SSR. One runtime in production. |
+| Auth | Password from `.env`, signed HTTP-only `SameSite=Strict` cookie, server bound to `127.0.0.1` | Single user. TLS reverse proxy is added at VPS time. |
 | Secrets | `.env` + pydantic-settings; X tokens encrypted with Fernet under `XBOT_SECRET_KEY` | Tokens never sit in plaintext in the DB or logs. |
 | Logging | structlog JSON to stdout, redaction processor | Grep-able locally, ship-able later. |
-| Tests | pytest + pytest-asyncio, respx for GitHub/X HTTP, `MockLLMProvider` with fixture outputs, Postgres test database | Real DB in tests catches constraint and migration bugs that SQLite would hide. |
-| Packaging | `uv` workspace for backend, `npm` for frontend, multi-stage Dockerfile, `docker-compose.yml` with `db` + `app` | Low-cost VPS deploy is `docker compose up -d`. |
+| Tests | pytest + pytest-asyncio, respx for GitHub/X HTTP, `MockLLMProvider` with fixture outputs, Postgres test database | A real DB in tests catches constraint and migration bugs that SQLite would hide. |
+| Packaging | `uv` for backend, `npm` for frontend, multi-stage Dockerfile (`tzdata` included), `docker-compose.yml` with `db` + `app` | VPS deploy is `docker compose up -d`. |
 
 ## 3. Repository layout
 
 ```
 Xbot/
 ├── backend/
-│   ├── pyproject.toml
-│   ├── alembic.ini, alembic/
+│   ├── pyproject.toml, alembic.ini, alembic/
 │   ├── xbot/
-│   │   ├── main.py            app factory, lifespan (DB check, scheduler start, static files)
+│   │   ├── main.py            app factory, lifespan (DB check, leader lock, scheduler, static files)
 │   │   ├── config.py          Settings (pydantic-settings), timezone, feature flags
 │   │   ├── logging.py         structlog setup + secret redaction
-│   │   ├── db/                engine, session, models.py (all tables), enums
+│   │   ├── db/                engine, session, models.py, enums
 │   │   ├── ingestion/         base.py (ActivitySource, DayContext), journal.py, github.py
 │   │   ├── intelligence/      schemas.py, prompts/*.md, stage1..stage5, guards.py, pipeline.py
-│   │   ├── llm/               base.py (LLMProvider, LLMResult), anthropic_provider.py,
-│   │   │                      mock_provider.py, pricing.py
-│   │   ├── memory/            voice_profile.py, history.py (recent posts, category freq, phrases)
-│   │   ├── publishing/        base.py (Publisher), x_oauth.py, x_publisher.py,
-│   │   │                      mock_publisher.py, service.py (approve/publish/idempotency)
-│   │   ├── scheduler/         jobs.py, catchup.py
-│   │   ├── api/               deps.py (auth), routes/ (auth, days, journal, github, pipeline,
-│   │   │                      drafts, publish, history, settings, x_auth, health)
-│   │   └── cli.py             `xbot` quick-entry CLI (talks to the local API)
+│   │   ├── llm/               base.py, anthropic_provider.py, mock_provider.py, pricing.py
+│   │   ├── memory/            voice_profile.py, history.py
+│   │   ├── publishing/        base.py, x_oauth.py, x_publisher.py, mock_publisher.py, service.py
+│   │   ├── scheduler/         leader.py, jobs.py, catchup.py
+│   │   ├── api/               deps.py, routes/
+│   │   └── cli.py
 │   └── tests/                 unit/, integration/, fixtures/
-├── frontend/                  Vite + React + TS + Tailwind
-├── docs/                      phase docs, PROGRESS.md
+├── frontend/
+├── docs/
 ├── Dockerfile, docker-compose.yml, .env.example, README.md, TODO.md
 ```
 
-Dependency rule: `api → services in each package → db`. `intelligence` depends on `llm` and
-`memory` only through interfaces. `publishing` never imports `intelligence`. `ingestion` sources
-never call the LLM.
+Dependency rule: `api → services → db`. `intelligence` depends on `llm` and `memory` only through
+interfaces. `publishing` never imports `intelligence`. `ingestion` never calls the LLM.
 
 ## 4. Data model
 
-All timestamps are `timestamptz` in UTC. Every day-scoped table carries `local_date` (DATE) computed
-in `Asia/Kolkata` at write time.
+All timestamps are `timestamptz` in UTC. Day-scoped tables carry `local_date` (DATE) computed in
+`Asia/Kolkata` at write time. The `days` row is created lazily on first write for that date.
 
 | Table | Key columns | Notes |
 |---|---|---|
-| `days` | `local_date` PK, `status` (open/consolidated/decided), `decision` (pending/post/no_post), `no_post_reason` | One row per calendar day; created by the morning job or on first write. |
-| `quests` | id, `local_date`, `text`, `position` 1–3, `status` (planned/done/dropped), `completed_at` | Intentions only. Status `planned` never counts as an activity. |
-| `journal_entries` | id, `local_date`, `kind` (update/worked_on/learned/challenge/plan), `content`, `source` (dashboard/cli), `created_at` | Free text. |
-| `checkins` | id, `local_date`, `question`, `answer` nullable, `asked_at`, `answered_at` | Created by Stage 1 when data is insufficient. |
-| `repo_settings` | `repo_full_name` PK, `include_diffs` bool, `excluded` bool | Per-repo opt-ins. |
-| `github_commits` | `sha` PK, `repo_full_name`, `local_date`, `authored_at`, `message`, `additions`, `deletions`, `files` JSONB, `html_url`, `diff` text nullable | Public repos only, enforced in `github.py`. |
-| `github_syncs` | id, `local_date`, `synced_at`, `status`, `commits_found`, `error` | Audit of sync attempts. |
-| `pipeline_runs` | id, `local_date`, `trigger` (scheduled/manual), `status` (running/needs_checkin/drafts_ready/no_post/failed), `outcome_reason`, token + cost totals, `started_at`, `finished_at`, `error` | One per run; several runs per day allowed. |
-| `pipeline_stage_runs` | id, `run_id`, `stage` 1–5, `attempt`, `status`, `input` JSONB, `output` JSONB, `model`, `input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_write_tokens`, `cost_usd`, `duration_ms`, `error` | Full audit trail; dashboard shows it. |
-| `activity_facts` | id, `run_id`, `local_date`, `kind`, `text`, `confidence` (confirmed/inferred/unknown), `source_refs` JSONB | Stage 1 output, normalised for querying. |
-| `insights` | id, `run_id`, `local_date`, `title`, `what_happened`, `why_interesting`, `fact_ids` JSONB, `scores` JSONB, `similar_post_id` nullable, `rank`, `selected` | Stage 2 output. |
-| `drafts` | id, `run_id`, `local_date`, `insight_id`, `category`, `label` (A/B/C), `text`, `edited_text` nullable, `claims` JSONB, `evaluation` JSONB, `status` (candidate/rejected/approved/published/discarded), `rating` 1–5 nullable, `feedback` text nullable | Stage 4 + 5 output. |
-| `published_posts` | id, `local_date` **UNIQUE**, `draft_id`, `final_text`, `category`, `x_post_id` nullable, `x_url` nullable, `status` (publishing/published/failed), `attempts`, `last_error`, `published_at` | The uniqueness constraint is the duplicate guard. |
-| `x_credentials` | id=1, `x_user_id`, `username`, `access_token_enc`, `refresh_token_enc`, `expires_at`, `scopes`, `connected_at` | Single row. Encrypted. |
-| `oauth_states` | `state` PK, `code_verifier`, `created_at` | 10-minute TTL, deleted on use. |
-| `settings` | `key` PK, `value` JSONB, `updated_at` | Typed via a `Settings` Pydantic model: `publishing_mode`, `max_post_chars`, `allow_links`, `morning_time`, `evening_time`, `github_username`, `voice_profile`, `topics_to_explore`, `phrases_to_avoid`, `category_cooldown_days`. |
-| `scheduler_state` | `job_name` PK, `last_run_local_date`, `last_run_at`, `last_status` | Drives catch-up. |
+| `days` | `local_date` PK, `decision` (pending/post/no_post), `no_post_reason`, `decided_at` | One row per calendar day, created lazily. |
+| `quests` | id, `local_date`, `text`, `position` 1–3, `status` (planned/done/dropped), `completed_at` | Intentions only. `planned` never counts as an activity. |
+| `journal_entries` | id, `local_date`, `kind` (update/worked_on/learned/challenge/plan), `content`, `source`, `created_at` | Free text. |
+| `checkins` | id, `local_date`, `run_id`, `question`, `answer` nullable, `asked_at`, `answered_at` | Created by Stage 1 when data is insufficient. |
+| `repo_settings` | `repo_full_name` PK, `include_diffs`, `excluded` | Per-repo opt-ins. |
+| `github_commits` | `sha` PK, `repo_full_name`, `local_date`, `authored_at`, `author_email`, `author_login`, `message`, `additions`, `deletions`, `files` JSONB, `html_url`, `diff` nullable | Public repos only. |
+| `github_syncs` | id, `local_date`, `synced_at`, `status`, `commits_found`, `error` | Audit. |
+| `pipeline_runs` | id, `local_date`, `trigger`, `status` (running/needs_checkin/drafts_ready/no_post/failed), `outcome_reason`, token + cost totals, `started_at`, `finished_at`, `error` | **Partial unique index** `(local_date) WHERE status='running'`: one live run per day. |
+| `pipeline_stage_runs` | id, `run_id`, `stage` 1–5, `attempt`, `status`, `input` JSONB, `output` JSONB, `model`, token counts, `cost_usd`, `duration_ms`, `request_id`, `error` | Full audit trail. Stage 1 facts and Stage 2 insights live here as JSONB; no separate tables. |
+| `drafts` | id, `run_id`, `local_date`, `insight` JSONB snapshot, `category`, `label`, `text`, `edited_text`, `claims` JSONB, `evaluation` JSONB, `status` (candidate/rejected/approved/published/discarded), `rating`, `feedback` | A new run marks the previous run's `candidate` drafts `discarded`. |
+| `published_posts` | id, `local_date` **UNIQUE**, `draft_id`, `final_text`, `category`, `x_post_id`, `x_url`, `status` (publishing/published/failed), `attempts`, `last_error`, `updated_at`, `published_at` | The uniqueness constraint is the duplicate guard. |
+| `x_credentials` | id=1, `x_user_id`, `username`, `access_token_enc`, `refresh_token_enc`, `expires_at`, `scopes`, `connected_at`, `needs_reconnect` | Single row, encrypted, row-locked during refresh. |
+| `oauth_states` | `state` PK, `code_verifier`, `created_at` | 10-minute TTL, single use. |
+| `settings` | `key` PK, `value` JSONB, `updated_at` | Typed via a `Settings` model (see §8); lives in M1 because later stages read thresholds from it. |
+| `scheduler_state` | `job_name` PK, `last_run_local_date`, `last_run_at`, `last_status` | Drives atomic catch-up claims. |
 
-Derived at read time, not stored: category frequency (from `published_posts`), repeated phrases
-(bigram/trigram counts over `published_posts.final_text`), consistency stats.
+Derived at read time: category frequency, repeated phrases, consistency stats.
 
 ## 5. Ingestion layer
 
@@ -123,195 +118,224 @@ class ActivitySource(Protocol):
 
 class SourceItem(BaseModel):
     source: Literal["journal", "quest", "checkin", "commit"]
-    ref_id: str                 # e.g. "journal:42", "commit:abc123"
+    ref_id: str                 # "journal:42", "commit:abc123"
     occurred_at: datetime
-    content: str                # what the LLM sees
-    status: str | None = None   # quest status, so planned ≠ done is visible
+    content: str
+    status: str | None = None   # quest status so planned ≠ done is visible
     metadata: dict = {}
 ```
 
-`DayContext` = the union of all `SourceItem`s + memory inputs. Adding a calendar source later is one
-new class registered in `ingestion/registry.py`.
-
 **GitHub source algorithm** (public only):
-1. `GET /users/{username}/repos?sort=pushed&per_page=50` → keep `private == false`, not excluded,
-   `pushed_at` within the local day ± 1 day.
-2. For each: `GET /repos/{o}/{r}/commits?author={username}&since=&until=` (day bounds in UTC).
-3. For each new sha: `GET /repos/{o}/{r}/commits/{sha}` for stats and file list; include the patch
-   only when `repo_settings.include_diffs` is true, truncated to 4 kB per file, 20 kB per commit.
-4. Upsert into `github_commits`. Rate limit headers respected; 3 retries with backoff on 5xx/403-abuse.
+1. `GET /users/{username}/repos?sort=pushed&per_page=50` plus any `extra_repos` from settings
+   (covers org repos). Keep `private == false`, not excluded, `pushed_at` within the local day ± 1 day.
+2. For each: `GET /repos/{o}/{r}/commits?since=&until=` **without** the `author` filter (that filter
+   only matches emails linked to the account, and the owner's git email differs). Filter locally:
+   `commit.author.email in settings.github_author_emails or author.login == username`.
+3. For each new sha: `GET /repos/{o}/{r}/commits/{sha}` for stats and files; patch only when
+   `include_diffs`, truncated to 4 kB per file and 20 kB per commit.
+4. Upsert into `github_commits`. Rate-limit headers respected; 3 retries with backoff on 5xx.
 
-Commits are presented to the LLM as *evidence of work*, with explicit instruction that a commit
-does not imply a feature is complete.
+Limitation, documented in the README: the commits endpoint lists the default branch only. Work on
+feature branches appears after merge, or can be journaled.
 
 ## 6. Intelligence pipeline
 
-Every stage is an async function `(ctx, previous outputs) -> PydanticModel`, called through one
-`LLMProvider` method, with inputs and outputs persisted in `pipeline_stage_runs`.
+Every stage is an async function `(ctx, previous outputs) -> PydanticModel` called through one
+`LLMProvider` method. Inputs and outputs are persisted in `pipeline_stage_runs` by the orchestrator
+in a short session opened after the call returns.
 
 ```python
 class LLMProvider(Protocol):
     async def complete_structured(
-        self, *, system: str, user: str, schema: type[T],
+        self, *, system_shared: str, system_stage: str, user: str, schema: type[T],
         effort: Literal["low","medium","high","xhigh"] = "high",
-        max_tokens: int = 8000, stage: str,
+        max_tokens: int = 16000, stage: str,
     ) -> LLMResult[T]: ...
-# LLMResult: parsed: T, model, usage (input/output/cache_read/cache_write), cost_usd, request_id
+# LLMResult: parsed: T, model, usage(input/output/cache_read/cache_write), cost_usd, request_id, stop_reason
 ```
 
-Anthropic implementation: `client.messages.parse(model="claude-opus-5", system=[{text, cache_control}],
-messages=[user], output_format=Schema, thinking={"type":"adaptive"}, output_config={"effort": ...})`.
-`stop_reason == "refusal"` is surfaced as a stage failure with the category, not retried. Server-side
-refusal fallbacks are **not** enabled in MVP: the content is a developer's own notes, and keeping the
-non-beta `parse` path is simpler; this is a one-line change if it ever matters.
+Anthropic implementation: `client.messages.parse(model="claude-opus-5", system=[shared_block,
+stage_block], messages=[user], output_format=Schema, thinking={"type": "adaptive"},
+output_config={"effort": effort}, max_tokens=max_tokens)`.
 
-Prompt layout for caching: `system` = persona + stage instructions + voice profile (frozen for the
-day, ≥512 tokens, one `cache_control` breakpoint). `user` = the day context, serialised with
-`sort_keys=True`. No timestamps in `system`.
+- `system_shared` = persona + voice profile + grounding rules (identical for all five stages,
+  ≥512 tokens, carries the single `cache_control` breakpoint). `system_stage` = that stage's
+  instructions. Because the shared block comes first, stages 2–5 and every regeneration attempt read
+  the cached prefix within the 5-minute TTL. If `usage.cache_read_input_tokens` stays 0 in practice
+  the marker is removed; nothing else depends on it.
+- `stop_reason == "refusal"` → stage failure with category, not retried. `"max_tokens"` → one retry
+  at `effort="medium"`, then failure. Server-side refusal fallbacks are not enabled in MVP.
+- User message = day context serialised with `sort_keys=True` under a clear "untrusted data" delimiter.
 
 ### Stage 1 — Activity understanding → `ActivityUnderstanding`
-- Output: `facts: [Fact{id, kind ∈ {activity, project, technology, concept, problem, discovery, unfinished}, text, confidence ∈ {confirmed, inferred, unknown}, source_refs}]`, `summary`, `sufficiency ∈ {enough, thin, insufficient}`, `checkin_questions: [str]` (≤3).
-- Code guard (`guards.py`): a fact whose only sources are quests with status `planned` is forced to
-  `confidence = unknown`. Facts with no `source_refs` are dropped and logged.
-- If `sufficiency == insufficient` → run status `needs_checkin`, questions stored in `checkins`,
-  pipeline stops. After answers arrive, a new run starts from Stage 1.
+- LLM output: `facts: [Fact{kind, text, confidence ∈ {confirmed, inferred, unknown}, source_refs}]`,
+  `summary`, `sufficiency ∈ {enough, thin, insufficient}`, `checkin_questions` (≤3).
+- **Code assigns fact ids** (`F1..Fn`) after validation, so later stages can only cite ids that exist.
+- Guards: facts whose only sources are `planned` quests → `unknown`; facts with no `source_refs` →
+  dropped and logged; `source_refs` must match real `ref_id`s from the context.
+- `insufficient` → run status `needs_checkin`, questions stored, pipeline stops. Answers trigger a new run.
 
 ### Stage 2 — Insight discovery → `InsightSet`
-- Output: `insights: [Insight{title, what_happened, why_interesting, fact_ids, scores{technical_value, novelty, relatability, authenticity, relevance} ∈ 1–5, similar_post_id?}]`, `nothing_worth_sharing: bool`, `reason`.
-- Input includes the last 30 published posts (text + category + date) so "already shared" is
-  judged against real history.
-- Code guard: insights citing only `inferred`/`unknown` facts get `authenticity` capped at 2 and are
-  never selected. If `nothing_worth_sharing` or the best weighted score < threshold (setting,
-  default 3.0) → run ends `no_post` with the reason.
+- `insights: [Insight{title, what_happened, why_interesting, fact_ids, scores{technical_value,
+  novelty, relatability, authenticity, relevance} 1–5, similar_post_id?}]`, `nothing_worth_sharing`, `reason`.
+- Input includes the last 30 published posts. Guard: insights citing only `inferred`/`unknown`
+  facts get `authenticity` capped at 2 and are never selected. Best weighted score below
+  `settings.min_insight_score` (default 3.0) or `nothing_worth_sharing` → `no_post`.
 
 ### Stage 3 — Content strategy → `Strategy`
-- Output: `category` (enum of the 10 categories), `angle`, `style ∈ {plain_note, mini_story, question_led, before_after, code_mention, reflection}`, `length_target`, `avoid: [str]`, `reasoning`.
-- Input includes category counts for the last 14 days and the last 3 categories used. Prompt rule:
-  do not pick a category used in the last `category_cooldown_days` unless no other fits.
+- `category` (10-value enum), `angle`, `style`, `length_target`, `avoid`, `reasoning`.
+- Input: category counts for 14 days and the last 3 categories; cooldown rule from settings.
 
 ### Stage 4 — Generation → `DraftSet`
-- Output: 2–3 `Draft{label, text, style_note, claims: [{sentence, fact_ids}]}`.
-- The `claims` map is what makes grounding checkable: every sentence that asserts something must
-  point to fact ids. Input includes voice profile, 5 best-rated past drafts and 3 worst with their
-  feedback, phrases to avoid, repeated-phrase list.
+- 2–3 `Draft{label, text, style_note, claims: [Claim{sentence, kind ∈ {fact, opinion}, fact_ids,
+  hedged: bool}]}`.
+- **Coverage guard (code):** the draft text is split into sentences; every sentence must match a
+  claim (normalised, fuzzy ≥0.85). A `fact` claim must cite existing ids, none `unknown`; a claim
+  whose facts are all `inferred` must be `hedged`. An uncovered sentence rejects the draft before
+  the LLM evaluator sees it.
+- Input: voice profile, 5 best-rated and 3 worst-rated past drafts with feedback, phrases to avoid.
 
 ### Stage 5 — Evaluation → `Evaluation` per draft
-- **Code checks first** (free, deterministic): char count vs `max_post_chars`; URL present and
-  `allow_links` false → reject; secret patterns (AWS/GitHub/Slack/OpenAI/Anthropic key shapes,
-  JWTs, `password=` etc.) → reject; near-duplicate of a published post (normalised token Jaccard
-  > 0.6) → reject; every claim's `fact_ids` must exist and none may be `unknown` → reject.
-- **LLM check**: `grounding: [{claim, supported, note}]`, `worth_sharing` 1–5, `sounds_human` 1–5,
-  `technically_correct`, `repetitive`, `reveals_sensitive`, `issues`, `verdict ∈ {accept, revise, reject}`,
-  `revision_hint`.
-- If no draft is `accept`ed: re-run Stage 4 with the revision hints, at most 2 extra attempts.
-  Still nothing → `no_post` with reason `quality`.
+- Code checks first: char count vs `max_post_chars`; URL present and `allow_links` false; secret
+  patterns; near-duplicate of a published post (token Jaccard > 0.6); the Stage 4 coverage guard.
+- LLM check: `grounding: [{claim, supported, note}]`, `worth_sharing`, `sounds_human`,
+  `technically_correct`, `repetitive`, `reveals_sensitive`, `issues`, `verdict`, `revision_hint`.
+- No `accept` → Stage 4 again with hints, at most 2 extra attempts → else `no_post` (`quality`).
 
-Run outcomes: `needs_checkin`, `drafts_ready`, `no_post`, `failed`. Token usage and USD cost are
-accumulated on the run.
+Run outcomes: `needs_checkin`, `drafts_ready`, `no_post`, `failed`. `POST /pipeline/run` inserts the
+`running` row (the partial unique index rejects a second concurrent run), schedules an asyncio task,
+and returns the run id immediately.
 
 ## 7. Publishing
 
 ```python
 class Publisher(Protocol):
     name: str
-    async def publish(self, payload: PostPayload) -> PublishResult   # PostPayload.segments: list[str]
-    async def verify(self, external_id: str) -> bool | None
+    async def publish(self, payload: PostPayload) -> PublishResult      # segments: list[str]
+    async def find_recent(self, text: str, since: datetime) -> str | None  # external id if found
 ```
-`segments` lets threads and media arrive later without changing callers. MVP sends one segment.
 
-**Approve → publish flow** (`publishing/service.py`):
-1. `POST /drafts/{id}/publish` → check `publishing_mode`, check draft status `candidate|approved`,
-   final text = `edited_text or text`, re-run the code checks from Stage 5 on the final text (the
-   user may have edited it).
-2. `INSERT published_posts (local_date, draft_id, final_text, status='publishing')`. The unique index
-   on `local_date` makes a second concurrent request fail here, before any network call.
-3. Call `Publisher.publish`. On success: `status='published'`, store `x_post_id`, `x_url`, mark the
-   draft `published`, mark the day `decided/post`.
-4. On failure: `status='failed'`, `last_error`, `attempts += 1`. Retry is **manual** from the
-   dashboard unless the error is clearly transient (429/5xx), in which case up to 2 automatic retries
-   with backoff happen inside the same request. A row in `failed` state can be retried; a row in
-   `publishing` state older than 5 minutes is treated as crashed and can be retried.
-5. Before any retry, if the X API returned an id or the verify call finds a post with identical text
-   in the last hour, mark `published` instead of re-posting.
+**Approve → publish flow** (`publishing/service.py`), designed so that no path can create two X posts:
 
-**X OAuth 2.0 PKCE** (`x_oauth.py`): `GET /api/x/connect` builds the authorize URL with S256
-challenge, stores `state` + verifier; `GET /api/x/callback` exchanges the code (confidential client:
-Basic auth with client id/secret), fetches `GET /2/users/me`, stores encrypted tokens. Access tokens
-are refreshed when < 5 minutes from expiry, under a lock, using the refresh token; a refresh failure
-flips the dashboard's X status to "reconnect needed".
+1. Validate: `publishing_mode`, draft status `candidate|approved`, final text = `edited_text or text`,
+   re-run the Stage 5 code checks on the final text.
+2. **Claim, in its own committed transaction:**
+   - first attempt: `INSERT published_posts (local_date, ..., status='publishing')` — the unique
+     index fails a concurrent second request before any network call;
+   - retry: `UPDATE published_posts SET status='publishing', attempts=attempts+1, updated_at=now()
+     WHERE local_date=:d AND (status='failed' OR (status='publishing' AND updated_at < now()-interval '5 min'))
+     RETURNING id` — zero rows means someone else holds the claim.
+3. Call `Publisher.publish` **outside any DB transaction**.
+4. Success → `status='published'`, `x_post_id`, `x_url`; draft `published`; day `post`.
+5. Failure handling by class:
+   - **429 or connection refused** (request provably never reached X): automatic retry, 2× with backoff.
+   - **5xx, timeout, 403 duplicate-content, unknown**: X may have created the post. Call
+     `find_recent(final_text, since=started_at - 1h)` (reads the owner's own timeline, ~$0.005).
+     Found → mark `published` with that id. Not found → `status='failed'`, `last_error`; retry is
+     **manual** from the dashboard and goes through step 2 again.
+6. Autonomous mode uses the identical service call; it is not a separate path.
 
-Autonomous mode: `publishing_mode = autonomous` publishes the top accepted draft automatically at
-the end of the evening run. The setting can only be changed through the settings API with an
-explicit confirmation string; no code path in the pipeline or scheduler writes settings.
+**X OAuth 2.0 PKCE** (`x_oauth.py`): `GET /api/x/connect` builds the authorize URL (S256), stores
+`state` + verifier; `GET /api/x/callback` exchanges the code (confidential client, Basic auth),
+fetches `GET /2/users/me`, stores encrypted tokens.
+
+**Token refresh** (refresh tokens are single-use):
+```
+async with session.begin():
+    creds = SELECT ... FROM x_credentials WHERE id=1 FOR UPDATE
+    if creds.expires_at - now() > 5 min: return creds.access_token      # re-check under the lock
+    resp = POST /2/oauth2/token grant_type=refresh_token                 # inside the lock, short call
+    on 400 invalid_grant: creds.needs_reconnect = True; commit; raise ReconnectRequired
+    on network / 5xx: commit nothing; raise Transient (caller backs off, max 3)
+    creds.access_token_enc, creds.refresh_token_enc, creds.expires_at = new values   # saved before use
+```
+Only `invalid_grant` flips the dashboard to "reconnect needed".
+
+Autonomous mode: `publishing_mode = autonomous` publishes the top accepted draft at the end of the
+evening run. The setting changes only through the settings API with the confirmation string
+`I UNDERSTAND XBOT WILL POST WITHOUT ASKING`; no code path in the pipeline or scheduler writes settings.
 
 ## 8. Memory and personalisation
 
-Stored in `settings.voice_profile` (editable in the dashboard) plus derived history:
+`settings` keys, typed by a Pydantic model: `publishing_mode`, `max_post_chars` (280),
+`allow_links` (false), `evening_time` ("20:00"), `github_username`, `github_author_emails`,
+`extra_repos`, `min_insight_score` (3.0), `category_cooldown_days` (3), `voice_profile`,
+`topics_to_explore`, `phrases_to_avoid`. Derived each run: last 30 posts, category counts, top
+repeated bigrams/trigrams, top/bottom rated drafts with feedback. All enter prompts as text. No
+training, no embeddings in MVP.
 
-- `voice_profile`: tone notes, sentence-length preference, things to never say, example posts.
-- `topics_to_explore`, `phrases_to_avoid`.
-- Derived each run: last 30 posts, category counts, top repeated bigrams/trigrams, top/bottom rated
-  drafts with feedback.
+## 9. Scheduling and daily workflow
 
-All of this enters prompts as text. No training, no embeddings in MVP. If history grows large,
-retrieval by category/recency keeps the prompt bounded (cap: 30 posts, 8 rated drafts).
-
-## 9. Daily workflow mapping
-
-| Time (IST) | Job | What happens |
-|---|---|---|
-| 08:00 | `morning` | Ensure `days` row exists; dashboard "Today" shows an empty quest list to fill. |
-| any time | — | Journal entries via dashboard or `xbot log "..."`; optional GitHub sync button. |
-| 20:00 | `evening` | GitHub sync → pipeline run → status `drafts_ready` / `needs_checkin` / `no_post`. Dashboard shows the outcome. |
-| after approval | — | Publish, store, update history. |
-| next startup | `catchup` | If today's `evening` has not run and it is past 20:00, run it. Past days are never auto-run; the dashboard lists undecided days. |
+| Mechanism | Behaviour |
+|---|---|
+| Leadership | On startup the process tries `pg_try_advisory_lock(<xbot key>)` on a dedicated connection held for the process lifetime. Winner runs the scheduler; losers log "follower" and serve the API only. `--reload` children and extra workers therefore cannot double-schedule. |
+| Startup recovery | Leader marks every `pipeline_runs.status='running'` row `failed` (`interrupted`) and every `published_posts.status='publishing'` row older than 5 minutes stays claimable per §7 step 2. |
+| Catch-up tick | Every 10 minutes the leader evaluates: if local time ≥ `evening_time` and `scheduler_state.evening.last_run_local_date < today`, claim with `UPDATE scheduler_state SET last_run_local_date=today, last_run_at=now() WHERE job_name='evening' AND (last_run_local_date IS NULL OR last_run_local_date < today) RETURNING` and, on a returned row, run GitHub sync → pipeline. This replaces both the cron trigger and startup-only catch-up, so a laptop that slept through 20:00 runs at the next tick. |
+| Past days | Never auto-run. The dashboard lists undecided past days with a manual "run" button. |
+| Morning | No job. The `days` row is created when you first write to today; the dashboard shows the empty quest list. |
+| After approval | Publish, store, update history (§7). |
 
 ## 10. API surface (prefix `/api`, JSON, cookie auth except `/auth/login` and `/health`)
 
 | Method & path | Purpose |
 |---|---|
 | `POST /auth/login`, `POST /auth/logout` | Password → session cookie |
-| `GET /health` | DB, scheduler, X connection, LLM key presence, mock flags |
-| `GET /days/today`, `GET /days/{date}` | Full day view |
-| `PUT /days/{date}/quests`, `PATCH /quests/{id}` | Set up to 3 quests, mark done/dropped |
+| `GET /health` | DB, leader/follower, X connection, LLM key presence, mock flags |
+| `GET /days/today`, `GET /days/{date}`, `GET /days/undecided` | Day views |
+| `PUT /days/{date}/quests`, `PATCH /quests/{id}` | Up to 3 quests, mark done/dropped |
 | `POST /days/{date}/entries`, `DELETE /entries/{id}` | Journal |
 | `GET /days/{date}/checkins`, `POST /checkins/{id}/answer` | Evening check-in |
 | `POST /days/{date}/github/sync`, `GET /github/repos`, `PATCH /github/repos/{owner}/{repo}` | GitHub |
-| `POST /days/{date}/pipeline/run`, `GET /pipeline/runs/{id}`, `GET /days/{date}/insights` | Pipeline |
+| `POST /days/{date}/pipeline/run` (202 + run id), `GET /pipeline/runs/{id}` | Pipeline |
 | `GET /days/{date}/drafts`, `PATCH /drafts/{id}`, `POST /drafts/{id}/publish`, `POST /days/{date}/no-post` | Drafts and decisions |
+| `POST /published/{id}/retry` | Manual retry per §7 |
 | `GET /history?from&to`, `GET /stats/consistency` | Calendar + streaks |
 | `GET /settings`, `PUT /settings` | Preferences, voice profile, publishing mode |
 | `GET /x/connect`, `GET /x/callback`, `GET /x/status`, `DELETE /x/connection` | X OAuth |
 
-Mutating requests require an `X-Requested-With: xbot` header in addition to the cookie (CSRF guard
-that `SameSite=Strict` already mostly covers).
+Mutating requests require an `X-Requested-With: xbot` header in addition to the cookie.
 
 ## 11. Security review
 
 | Concern | Control |
 |---|---|
-| Secrets in repo | `.env` git-ignored; `.env.example` has placeholders only; settings loader refuses to start if `XBOT_SECRET_KEY` is the example value. |
-| X tokens at rest | Fernet encryption; key only in `.env`; tokens never logged (structlog redaction on keys matching `token|secret|key`). |
-| Dashboard exposure | Binds `127.0.0.1:8000` by default; password required; signed cookie; CSRF header. VPS deploy adds Caddy with TLS. |
-| OAuth CSRF | `state` random 32 bytes, stored server-side, single use, 10-minute expiry; PKCE S256. |
-| LLM prompt injection via commit messages or journal | Day context is data inside the user message under a clear delimiter; stage prompts instruct that content is untrusted; outputs are schema-constrained so injected text cannot trigger actions. The only action with external effect (publish) is behind the human gate. |
-| Secret leakage into posts | Regex scanner + LLM `reveals_sensitive` + user preview. |
-| Private code | Not fetched at all (public repos only). Diffs opt-in per public repo. |
-| Autonomous mode | Off by default; confirmation string required; pipeline cannot change it; UI banner when on. |
-| Mocks in production | Mock providers are selected only by `XBOT_LLM_PROVIDER=mock` / `XBOT_PUBLISHER=mock`; `/health` and the dashboard header show a "MOCK" badge when either is active. |
+| Secrets in repo | `.env` git-ignored; `.env.example` placeholders; startup refuses the example `XBOT_SECRET_KEY`. |
+| X tokens at rest | Fernet; key only in `.env`; structlog redaction on `token|secret|key|password`. |
+| Dashboard exposure | `127.0.0.1:8000` default; password; signed cookie; CSRF header. TLS proxy at VPS time. |
+| OAuth CSRF | 32-byte `state`, server-side, single use, 10-minute expiry; PKCE S256. |
+| Prompt injection via commits/journal | Context is data inside the user message under a delimiter; stage prompts say it is untrusted; outputs are schema-constrained; the only external action is behind the human gate. |
+| Secret leakage into posts | Regex scanner + LLM `reveals_sensitive` + preview. |
+| Private code | Never fetched. Diffs opt-in per public repo. |
+| Autonomous mode | Off by default; confirmation string; pipeline cannot change it; UI banner when on. |
+| Mocks in production | Selected only by `XBOT_LLM_PROVIDER=mock` / `XBOT_PUBLISHER=mock`; `/health` and the dashboard show a "MOCK" badge. |
+| Double scheduling / double posting | Advisory lock, partial unique index on running runs, unique `published_posts.local_date`, committed claim before network, `find_recent` before any re-post. |
 
 ## 12. Observability
 
-- structlog JSON logs with `run_id`, `stage`, `local_date` bound to every pipeline log line.
-- `pipeline_runs` + `pipeline_stage_runs` are the audit trail; the dashboard shows per-stage tokens,
-  cost, duration, and the raw output JSON behind a toggle.
-- `/api/health` for liveness; a `stats` endpoint for consistency.
-- Anthropic `request_id` stored on each stage run for support.
+structlog JSON with `run_id`, `stage`, `local_date` bound; `pipeline_runs` + `pipeline_stage_runs`
+as the audit trail with tokens, cost, duration, Anthropic `request_id`; `/api/health`; the
+dashboard shows per-stage cost and raw output behind a toggle.
 
 ## 13. Known limitations accepted for MVP
 
-- Single process: a crash mid-run leaves `pipeline_runs.status = running`; on startup any run older
-  than 30 minutes in that state is marked `failed` with reason `interrupted`.
-- No retries across process restarts for publishing (the dashboard retry button covers it).
-- Character counting uses X's weighted rule approximately (CJK/emoji count as 2); exact parity with
-  X's `twitter-text` library is a later improvement.
+- GitHub: default branch only; org repos only via `extra_repos`.
+- Character counting approximates X's weighted rule (CJK/emoji count 2).
+- `find_recent` costs one timeline read (~$0.005) per ambiguous failure.
+- Prompt-cache benefit is modest (within-run regeneration and same-day re-runs); it is kept
+  because it is one marker and is removed if measurement shows no hits.
+
+## 14. Revision log
+
+**Rev 2 (2026-11-08, after advisor review).** Publish claim committed before the network call and
+retries claimed by conditional update; failure classes split into "provably not sent" vs
+"maybe sent → `find_recent`"; `verify(id)` replaced by `find_recent(text, since)`. Advisory-lock
+leadership, 10-minute catch-up tick with atomic claim, partial unique index on running runs,
+startup marks all running runs failed. Token refresh under `SELECT … FOR UPDATE`, new refresh token
+saved before use, only `invalid_grant` means reconnect. GitHub matching by configured emails or
+login instead of the `author` param; default-branch limit documented; `extra_repos` for org repos.
+Code assigns fact ids; sentence-coverage guard with `opinion` kind and `hedged` flag; older
+candidate drafts discarded on a new run. `max_tokens` 16000 with `max_tokens` stop handling; cache
+breakpoint moved to a shared first system block so it can actually hit across stages; pipeline run
+as a background task; async SQLAlchemy chosen; APScheduler started in lifespan; `tzdata` in the
+image. Cut: `activity_facts` and `insights` tables (JSONB on stage runs), the morning job, the
+30-minute interrupted-run threshold.

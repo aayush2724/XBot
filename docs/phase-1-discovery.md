@@ -178,8 +178,8 @@ Nothing else. No Redis, no queue, no LangGraph.
 
 ## 8. Preliminary architecture direction (to be finalised in Phase 2)
 
-- **Backend:** Python 3.14, FastAPI, SQLAlchemy 2 + Alembic, Pydantic v2, `httpx`, APScheduler
-  (in-process, Postgres job store), `structlog`.
+- **Backend:** Python 3.14, FastAPI, SQLAlchemy 2 (async) + Alembic, Pydantic v2, `httpx`, APScheduler
+  (in-process, in-memory job store, Postgres `scheduler_state` table + advisory lock for leadership), `structlog`.
 - **Intelligence:** plain Python orchestration of five stages, each a pure function
   `(inputs) -> StructuredOutput` persisted as a `pipeline_stage_run` row. No LangGraph: the graph
   is linear with one bounded loop (evaluate → regenerate), which does not justify the dependency.

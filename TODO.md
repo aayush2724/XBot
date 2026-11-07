@@ -9,15 +9,15 @@ Legend: [ ] pending · [~] in progress · [x] done · [!] blocked on user
 - [x] Confirm Q1 (Opus 5 everywhere), Q2 (local now, VPS later), Q3 (public repos only)
 
 ## Phase 2 — Architecture
-- [ ] System architecture + module boundaries (`docs/phase-2-architecture.md`)
-- [ ] Data model (ERD + migrations plan)
-- [ ] API contracts (OpenAPI-first sketch)
-- [ ] AI pipeline design: stage schemas, prompts strategy, eval rubric
-- [ ] Security review: token storage, secret scanning, dashboard auth
-- [ ] Advisor review before locking the plan
+- [x] System architecture + module boundaries (`docs/phase-2-architecture.md`)
+- [x] Data model
+- [x] API contracts
+- [x] AI pipeline design
+- [x] Security review
+- [x] Advisor review; 6 findings folded in (rev 2), plan locked
 
 ## Phase 3 — Implementation planning
-- [ ] Milestones with deliverables, dependencies, acceptance criteria (`docs/phase-3-milestones.md`)
+- [x] Milestones with deliverables, dependencies, acceptance criteria (`docs/phase-3-milestones.md`)
 
 ## Phase 4 — Core MVP
 - [ ] Backend scaffold, config, DB, migrations
