@@ -181,3 +181,43 @@ checks against published posts receive an empty list until M5.
 **Next.** M5: publishing (X OAuth 2.0 PKCE, row-locked token refresh, publisher with
 `find_recent`, mock publisher, claim-before-network service, `publish` node, history and
 consistency endpoints).
+
+## 2026-11-08 — M5 complete: publishing
+
+**Implemented.** `xbot/publishing/`: contracts with three failure classes (`PublishNotSent`,
+`PublishMaybeSent`, `PublishRejected`) plus `NotConnected`; `MockPublisher` with failure
+injection; X OAuth 2.0 PKCE (S256) for a confidential client with server-side single-use state,
+Fernet-encrypted tokens, and `get_access_token` that refreshes under `SELECT … FOR UPDATE`,
+commits the new single-use refresh token before returning, and commits a `needs_reconnect` flag
+on `invalid_grant`; `XPublisher` mapping 201 → id, 429 and connection refused → not sent, 5xx,
+timeouts and duplicate-content 403 → maybe sent, other 4xx → rejected, 401 → not connected, and
+`find_recent` over the owner's own timeline; the service that claims the day in its own committed
+transaction (insert, or conditional update of a failed or stale claim), calls the publisher
+outside any transaction, retries only "not sent" failures, verifies "maybe sent" failures on the
+timeline before recording them, and marks the draft and day on success. Tables
+`published_posts` (unique per day), `x_credentials`, `oauth_states` (migration 0006). The graph's
+`publish` node now publishes for real; published posts feed Stage 2 and 3 as recent posts,
+14-day category counts and cooldown categories. Endpoints: `/api/x/connect|callback|status`,
+`DELETE /api/x/connection`, `GET /api/history`, `GET /api/stats/consistency`,
+`POST /api/published/{id}/retry`. Day view shows the published post. CLI `connect-x`, `history`.
+
+**Tests.** 98 passing (19 new): success marks post, draft and day; a second publish for the same
+day is refused before the network; two concurrent publishes reach the publisher once; not-sent
+retried then succeeds; retries exhausted → failed → manual retry publishes with attempts = 2;
+maybe-sent after X created the post is verified via the timeline and never re-posted; maybe-sent
+with nothing on the timeline fails without re-posting; rejected and not-connected fail at once;
+a stale claim is retaken; graph publish via the mock publisher ends `published` with the day
+decided; history and streak statistics; retry endpoint and its conflicts; PKCE URL and state
+storage; code exchange stores encrypted tokens and the state is single-use; refresh only near
+expiry with the new refresh token saved; three concurrent refreshes hit the token endpoint once;
+5xx is transient and `invalid_grant` flips `needs_reconnect`; X publisher HTTP mapping and
+`find_recent`; X status, connect without app credentials, disconnect, callback error redirect.
+ruff and mypy strict clean.
+
+**Bug found by tests.** Raising inside the refresh transaction rolled back the `needs_reconnect`
+flag; the flag is now committed before the error is raised.
+
+**Limitations.** No real X post yet: it needs `X_CLIENT_ID`, `X_CLIENT_SECRET` and credits (see
+README). Threads and media are not supported; the payload type already carries segments.
+
+**Next.** M6: advisory-lock scheduler leadership, 10-minute catch-up tick, leader-only recovery.

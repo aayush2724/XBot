@@ -81,10 +81,11 @@ async def test_approve_resumes_once_and_second_approve_conflicts(
         ),
     )
     assert sorted([r1.status_code, r2.status_code]) == [202, 409]
-    assert await _wait(app, run_id) == "publish_failed"  # no publisher until M5
+    assert await _wait(app, run_id) == "published"
     async with app.state.db.session_factory() as session:
         row = await session.get(DraftRecord, chosen)
-        assert row is not None and row.status == DraftStatus.approved
+        assert row is not None and row.status == DraftStatus.published
+    assert app.state.publisher.publish_calls == 1
     # Editing after the run left waiting_review is refused; rating still works.
     r = await auth_client.patch(f"/api/drafts/{chosen}", json={"edited_text": "too late"})
     assert r.status_code == 409
@@ -129,7 +130,8 @@ async def test_approve_validates_draft_id_and_edited_text(
         f"/api/pipeline/runs/{run_id}/review", json={"action": "approve", "draft_id": chosen}
     )
     assert r.status_code == 202
-    assert await _wait(app, run_id) == "publish_failed"
+    assert await _wait(app, run_id) == "published"
+    assert app.state.publisher.sent[-1][1] == "Fixed the review flow today. Felt good."
 
 
 async def test_regenerate_with_feedback_then_reject(
@@ -192,7 +194,7 @@ async def test_cli_drafts_rate_edit_and_review(
     assert "needs a draft id" in capsys.readouterr().err
     assert await cli_run(["review", "approve", str(drafts[1]["id"])], auth_client) == 0
     assert "approve accepted" in capsys.readouterr().out
-    assert await _wait(app, run_id) == "publish_failed"
+    assert await _wait(app, run_id) == "published"
     async with app.state.db.session_factory() as session:
         row = await session.get(DraftRecord, drafts[1]["id"])
         assert row is not None and row.edited_text == "My own words about the review endpoint."

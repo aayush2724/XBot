@@ -4,9 +4,11 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Request
 from pydantic import BaseModel
+from sqlalchemy import select
 
 from xbot import __version__
 from xbot.api.deps import DbDep, SettingsDep
+from xbot.db.models import XCredential
 
 router = APIRouter(tags=["health"])
 
@@ -24,11 +26,19 @@ class Health(BaseModel):
     mock: bool
     llm_configured: bool
     x_app_configured: bool
+    x_connected: bool
 
 
 @router.get("/health", response_model=Health)
 async def health(request: Request, settings: SettingsDep, db: DbDep) -> Health:
     db_ok = await db.ping()
+    x_connected = False
+    if db_ok:
+        async with db.session_factory() as session:
+            creds = (
+                await session.execute(select(XCredential).where(XCredential.id == 1))
+            ).scalar_one_or_none()
+            x_connected = bool(creds and not creds.needs_reconnect)
     return Health(
         status="ok" if db_ok else "degraded",
         version=__version__,
@@ -44,4 +54,5 @@ async def health(request: Request, settings: SettingsDep, db: DbDep) -> Health:
         mock=settings.is_mock,
         llm_configured=bool(settings.anthropic_api_key),
         x_app_configured=bool(settings.x_client_id and settings.x_client_secret),
+        x_connected=x_connected,
     )

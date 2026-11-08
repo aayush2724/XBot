@@ -12,6 +12,7 @@ from xbot.db.models import (
     DraftStatus,
     EntryKind,
     EntrySource,
+    PublishStatus,
     QuestStatus,
     RunStatus,
     RunTrigger,
@@ -131,6 +132,7 @@ class DayView(BaseModel):
     checkins: list[CheckinOut]
     commits: list[CommitOut] = Field(default_factory=list)
     latest_run: RunOut | None = None
+    published: PublishedOut | None = None
 
 
 class QuestsIn(BaseModel):
@@ -186,3 +188,45 @@ class ReviewIn(BaseModel):
     draft_id: int | None = None
     feedback: str | None = Field(default=None, max_length=2000)
     reason: str | None = Field(default=None, max_length=500)
+
+
+class PublishedOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    local_date: date
+    draft_id: int
+    final_text: str
+    category: str | None
+    x_post_id: str | None
+    x_url: str | None
+    status: PublishStatus
+    attempts: int
+    last_error: str | None
+    published_at: datetime | None
+
+
+class XStatus(BaseModel):
+    app_configured: bool
+    connected: bool
+    username: str | None = None
+    x_user_id: str | None = None
+    expires_at: datetime | None = None
+    needs_reconnect: bool = False
+    scopes: str | None = None
+
+
+class HistoryDay(BaseModel):
+    local_date: date
+    decision: DayDecision
+    no_post_reason: str | None
+    run_status: RunStatus | None
+    published: PublishedOut | None
+
+
+class ConsistencyStats(BaseModel):
+    days_window: int
+    posts_published: int
+    days_decided: int
+    current_post_streak: int
+    longest_post_streak: int
+    current_decision_streak: int

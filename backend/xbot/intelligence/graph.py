@@ -25,7 +25,7 @@ from sqlalchemy.dialects.postgresql import insert
 
 from xbot.config import Settings
 from xbot.db.base import Database
-from xbot.db.models import DraftRecord, DraftStatus
+from xbot.db.models import DraftRecord, DraftStatus, PublishStatus
 from xbot.ingestion.base import DayContext, SourceItem, collect_day_context
 from xbot.ingestion.github import GitHubSource
 from xbot.ingestion.journal import JournalSource
@@ -46,6 +46,8 @@ from xbot.llm.base import LLMProvider
 from xbot.logging import get_logger
 from xbot.memory.inputs import load_memory_inputs
 from xbot.preferences import Preferences, PublishingMode
+from xbot.publishing.base import PublishError
+from xbot.publishing.service import AlreadyPublished, PublishInProgress, publish_draft
 from xbot.services.days import ensure_checkins
 
 log = get_logger("xbot.graph")
@@ -234,7 +236,7 @@ async def strategy(state: PipelineState, runtime: Ctx) -> Command[Literal["gener
         memory,
         max_chars=ctx.prefs.max_post_chars,
         cooldown_days=ctx.prefs.category_cooldown_days,
-        last_categories=[],  # filled from published posts in M5
+        last_categories=list(memory.get("last_categories", [])),
     )
     result = await call_stage(
         db=ctx.db,
@@ -460,8 +462,8 @@ async def review(
 
 
 async def publish(state: PipelineState, runtime: Ctx) -> Command[Literal["finish"]]:
-    """Approve the chosen draft, then hand off to the publisher (wired in M5). Without a
-    configured publisher the run ends as publish_failed so nothing is silently lost."""
+    """Approve the chosen draft and publish it through the service, whose claim-before-network
+    design makes a re-execution of this node find the claim instead of posting twice."""
     ctx = runtime.context
     accepted = state.get("accepted_draft_ids", [])
     chosen = (state.get("review") or {}).get("draft_id") or (accepted[0] if accepted else None)
@@ -483,9 +485,40 @@ async def publish(state: PipelineState, runtime: Ctx) -> Command[Literal["finish
             },
             goto="finish",
         )
-    # M5: publishing service call goes here.
+    try:
+        post = await publish_draft(ctx.db, ctx.publisher, int(chosen))
+    except AlreadyPublished as e:
+        return Command(
+            update={
+                "published": {"id": e.post.id, "x_post_id": e.post.x_post_id, "url": e.post.x_url},
+                "outcome": "published",
+                "outcome_reason": "already published for this day",
+            },
+            goto="finish",
+        )
+    except PublishInProgress as e:
+        return Command(
+            update={"outcome": "publish_failed", "outcome_reason": str(e)}, goto="finish"
+        )
+    except PublishError as e:
+        return Command(
+            update={"outcome": "publish_failed", "outcome_reason": str(e)}, goto="finish"
+        )
+    if post.status == PublishStatus.published:
+        return Command(
+            update={
+                "published": {"id": post.id, "x_post_id": post.x_post_id, "url": post.x_url},
+                "outcome": "published",
+                "outcome_reason": f"published as {post.x_post_id}",
+            },
+            goto="finish",
+        )
     return Command(
-        update={"outcome": "publish_failed", "outcome_reason": "publisher integration pending"},
+        update={
+            "published": {"id": post.id, "x_post_id": None, "url": None},
+            "outcome": "publish_failed",
+            "outcome_reason": post.last_error or "publish failed",
+        },
         goto="finish",
     )
 

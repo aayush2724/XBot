@@ -17,12 +17,13 @@ from xbot.api.schemas import (
     EntryIn,
     EntryOut,
     NoPostIn,
+    PublishedOut,
     QuestOut,
     QuestsIn,
     QuestStatusIn,
     RunOut,
 )
-from xbot.db.models import Day, DayDecision, GithubCommit, PipelineRun
+from xbot.db.models import Day, DayDecision, GithubCommit, PipelineRun, PublishedPost
 from xbot.ingestion.github import list_commits_for_day
 from xbot.services import days as svc
 
@@ -40,13 +41,22 @@ async def _latest_run(session: AsyncSession, local_date: date) -> RunOut | None:
     return RunOut.model_validate(run) if run else None
 
 
+async def _published(session: AsyncSession, local_date: date) -> PublishedOut | None:
+    row = (
+        await session.execute(select(PublishedPost).where(PublishedPost.local_date == local_date))
+    ).scalar_one_or_none()
+    return PublishedOut.model_validate(row) if row else None
+
+
 async def _full_view(session: AsyncSession, local_date: date) -> DayView:
-    return _view(
+    view = _view(
         local_date,
         await svc.get_day(session, local_date),
         await list_commits_for_day(session, local_date),
         await _latest_run(session, local_date),
     )
+    view.published = await _published(session, local_date)
+    return view
 
 
 def _view(

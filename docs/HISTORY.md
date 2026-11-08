@@ -274,3 +274,26 @@ graph; 79 tests pass.
 - The approval endpoint resumes the graph through a compare-and-set because the advisor's
   review of the design showed that a double click or a slow network would otherwise drive one
   thread twice.
+
+### 22. M5: publishing with no path to a double post
+
+**What.** The publishing layer, X OAuth and the real `publish` node were built; 98 tests pass.
+
+**Why it looks like this.**
+- Claim before network: the advisor's review of revision 1 showed that an uncommitted
+  "publishing" marker rolls back on a crash and a retry can double-post. The claim is committed
+  first; the unique day index stops a concurrent second claim before any request.
+- Two failure classes: a 429 or a refused connection means X never created the post, so a retry
+  is safe; a 5xx, a timeout or a "duplicate content" 403 means X may have, so the service looks
+  at the owner's timeline first and records what it finds instead of posting again.
+- Refresh under a row lock with the new token committed before use: X refresh tokens are
+  single-use, so two concurrent refreshes with the same token would lock the owner out.
+- The `needs_reconnect` flag is committed before the error reaches the caller, because the
+  first implementation raised inside the transaction and the flag silently rolled back; a test
+  caught it.
+- Edited text is what gets posted (`edited_text or text`), and the day is marked `post` only
+  after X confirms.
+
+**Test expectation changes.** Earlier milestones asserted `publish_failed` because no publisher
+existed; with the mock publisher configured in tests, approval now ends in `published`, and
+those assertions were updated rather than kept as historical artefacts.

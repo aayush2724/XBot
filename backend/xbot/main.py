@@ -16,6 +16,7 @@ from xbot.db.base import Database
 from xbot.intelligence.runner import PipelineRunner
 from xbot.llm.factory import build_provider
 from xbot.logging import configure_logging, get_logger
+from xbot.publishing.factory import build_publisher
 
 SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 CSRF_EXEMPT = frozenset({"/api/auth/login"})
@@ -43,7 +44,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         else:
             log.info("llm provider", provider=settings.llm_provider, model=settings.llm_model)
         app.state.llm = build_provider(settings)
-        runner = PipelineRunner(db, settings, app.state.llm)
+        app.state.publisher = build_publisher(db, settings)
+        runner = PipelineRunner(db, settings, app.state.llm, publisher=app.state.publisher)
         await runner.startup()
         await runner.recover()
         app.state.runner = runner

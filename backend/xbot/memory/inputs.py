@@ -3,11 +3,13 @@ posts and category counts."""
 
 from __future__ import annotations
 
+from datetime import date, timedelta
+
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from xbot.db.models import DraftRecord
+from xbot.db.models import DraftRecord, PublishedPost, PublishStatus
 from xbot.preferences import Preferences
 
 MAX_GOOD_EXAMPLES = 5
@@ -35,6 +37,7 @@ class MemoryInputs(BaseModel):
     category_counts_14d: dict[str, int] = Field(default_factory=dict)
     liked_examples: list[RatedExample] = Field(default_factory=list)
     disliked_examples: list[RatedExample] = Field(default_factory=list)
+    last_categories: list[str] = Field(default_factory=list)  # within the cooldown window
 
 
 def build_memory_inputs(prefs: Preferences) -> MemoryInputs:
@@ -73,4 +76,35 @@ async def load_memory_inputs(session: AsyncSession, prefs: Preferences) -> Memor
         RatedExample(text=r.edited_text or r.text, rating=r.rating or 0, feedback=r.feedback)
         for r in bad
     ]
+    posts = (
+        (
+            await session.execute(
+                select(PublishedPost)
+                .where(PublishedPost.status == PublishStatus.published)
+                .order_by(PublishedPost.local_date.desc())
+                .limit(30)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    memory.recent_posts = [
+        RecentPost(
+            id=str(p.id),
+            local_date=p.local_date.isoformat(),
+            category=p.category or "unknown",
+            text=p.final_text,
+        )
+        for p in posts
+    ]
+    today = date.today()
+    counts: dict[str, int] = {}
+    for p in posts:
+        if p.local_date >= today - timedelta(days=14) and p.category:
+            counts[p.category] = counts.get(p.category, 0) + 1
+    memory.category_counts_14d = counts
+    cooldown_start = today - timedelta(days=prefs.category_cooldown_days)
+    memory.last_categories = sorted(
+        {p.category for p in posts if p.category and p.local_date >= cooldown_start}
+    )
     return memory

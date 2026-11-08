@@ -31,9 +31,9 @@ Legend: [ ] pending · [~] in progress · [x] done · [!] blocked on user
 - [x] M4b drafts endpoints (list, edit, rate), review endpoint with compare-and-set and final-text validation, CLI drafts/edit/rate/review (6 new tests, 79 total)
 
 ## Phase 5 — Publishing
-- [ ] X OAuth 2.0 PKCE connect + token refresh
-- [ ] Approval workflow + publish + history
-- [ ] Duplicate prevention + failure handling
+- [x] M5 X OAuth 2.0 PKCE connect, encrypted tokens, row-locked single-use refresh
+- [x] M5 claim-before-network publish service, NotSent/MaybeSent classes, find_recent, manual retry
+- [x] M5 publish node, history and consistency endpoints, published posts feed strategy (19 new tests, 98 total)
 
 ## Phase 6 — Dashboard
 - [ ] Frontend scaffold

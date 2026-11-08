@@ -242,13 +242,12 @@ async def test_autonomous_mode_skips_review_and_reaches_publish(
     await _seed(auth_client)
     run = await _start(auth_client)
     state = await _wait(app, run["id"])
-    assert state["status"] == RunStatus.publish_failed and "no publisher" in (
-        state["reason"] or ""
-    ), state
+    assert state["status"] == RunStatus.published, state
     detail = (await auth_client.get(f"/api/pipeline/runs/{run['id']}")).json()
     assert detail["waiting_for"] is None
     statuses = sorted(d["status"] for d in detail["drafts"])
-    assert statuses == ["accepted", "approved"]
+    assert statuses == ["accepted", "published"]
+    assert app.state.publisher.publish_calls == 1
 
 
 async def test_new_run_discards_previous_unreviewed_drafts(

@@ -16,6 +16,8 @@ from the repo-root .env, so journaling from a terminal is one command.
     xbot review approve <draft_id>  publish this draft (after M5) / approve it
     xbot review regenerate ["feedback"]
     xbot review reject ["reason"]
+    xbot connect-x                  print the X authorisation URL to open in a browser
+    xbot history [--days 30]        published posts and decisions
     xbot keygen                     print a value for XBOT_SECRET_KEY
 """
 
@@ -68,6 +70,9 @@ def _parser() -> argparse.ArgumentParser:
     rv.add_argument(
         "arg", nargs="?", default=None, help="draft id for approve; feedback or reason otherwise"
     )
+    sub.add_parser("connect-x", help="print the X authorisation URL to open in a browser")
+    hs = sub.add_parser("history", help="published posts and decisions")
+    hs.add_argument("--days", type=int, default=30)
     sub.add_parser("keygen", help="print a random value for XBOT_SECRET_KEY")
     return p
 
@@ -229,6 +234,36 @@ async def run(argv: Sequence[str], client: httpx.AsyncClient) -> int:
             return 2
         r.raise_for_status()
         print(f"run #{latest['id']}: {args.action} accepted, now {r.json()['status']}")
+        return 0
+    if args.command == "connect-x":
+        r = await client.get("/api/x/connect")
+        if r.status_code == 400:
+            print(f"error: {r.json().get('detail')}", file=sys.stderr)
+            return 2
+        r.raise_for_status()
+        print("Open this URL in your browser to authorise XBot:")
+        print(r.json()["authorize_url"])
+        return 0
+    if args.command == "history":
+        r = await client.get("/api/stats/consistency", params={"days": args.days})
+        r.raise_for_status()
+        st = r.json()
+        print(
+            f"last {st['days_window']} days: {st['posts_published']} posts, "
+            f"{st['days_decided']} days decided, post streak {st['current_post_streak']} "
+            f"(best {st['longest_post_streak']})"
+        )
+        r = await client.get("/api/history")
+        r.raise_for_status()
+        for h in r.json():
+            pub = h.get("published")
+            if pub and pub["status"] == "published":
+                link = pub["x_url"] or pub["x_post_id"]
+                print(f"  {h['local_date']}  posted  {link}  {pub['final_text'][:60]}")
+            elif pub:
+                print(f"  {h['local_date']}  {pub['status']}  {pub.get('last_error') or ''}")
+            else:
+                print(f"  {h['local_date']}  {h['decision']}  {h.get('no_post_reason') or ''}")
         return 0
     if args.command in ("submit", "skip", "retry"):
         latest = view.get("latest_run")

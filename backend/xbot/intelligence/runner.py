@@ -86,7 +86,7 @@ class PipelineRunner:
         llm: LLMProvider,
         publisher: Any | None = None,
         checkpointer: Any | None = None,
-    ) -> None:
+    ) -> None:  # publisher: Publisher | None
         self.db = db
         self.settings = settings
         self.llm = llm
