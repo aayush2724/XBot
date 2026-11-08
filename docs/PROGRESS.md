@@ -153,3 +153,31 @@ published posts and category cooldown inputs are empty until M5 provides them.
 
 **Next.** M4b: drafts endpoints (list, edit, rate), review endpoint with compare-and-set, CLI
 review, then M5 publishing.
+
+## 2026-11-08 — M4b complete: review surface
+
+**Implemented.** `GET /api/days/{date}/drafts` and `PATCH /api/drafts/{id}` (edit text only while
+the run waits for review and the draft is still a candidate; rating 1–5 and feedback any time;
+reverting to the original clears the edit). `POST /api/pipeline/runs/{id}/review` with
+`approve | regenerate | reject`: validates the action against the pending interrupt, requires
+the approved draft id to be one of the accepted ids, re-runs the final-text checks on the edited
+text (length, links, secrets, duplicates; coverage is skipped because the owner's words are the
+ground truth) and returns 422 on failure, then resumes the graph under a compare-and-set so only
+one caller wins (409 for the loser). CLI: `drafts`, `edit`, `rate`, `review approve|regenerate|
+reject`.
+
+**Tests.** 79 passing (6 new): list/edit/rate rules, concurrent approve → one 202 one 409,
+post-approval edit refused while rating still works, approve validation (missing id, foreign id,
+too-long edit, link in edit) with the run staying reviewable, regenerate with feedback → attempt
+2 with attempt 1 discarded → reject → `no_post`, review on a run waiting for check-ins → 409,
+CLI round trip through drafts, rate, edit and approve. ruff and mypy strict clean.
+
+**Live walk (mock model).** Journal → run → `xbot drafts` → rate → edit → `xbot review approve`
+→ `publish_failed` ("no publisher is configured"), which is the expected end until M5.
+
+**Limitations.** Approval still ends in `publish_failed` until M5 wires the publisher. Duplicate
+checks against published posts receive an empty list until M5.
+
+**Next.** M5: publishing (X OAuth 2.0 PKCE, row-locked token refresh, publisher with
+`find_recent`, mock publisher, claim-before-network service, `publish` node, history and
+consistency endpoints).

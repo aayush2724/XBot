@@ -9,13 +9,19 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import select
 
 from xbot.api.deps import SessionDep, require_auth
-from xbot.api.schemas import DraftOut, RunDetail, RunOut, StageOut
+from xbot.api.schemas import DraftOut, ReviewIn, RunDetail, RunOut, StageOut
 from xbot.db.models import DraftRecord, PipelineRun, PipelineStageRun, RunTrigger
-from xbot.intelligence.runner import PipelineRunner, RunConflict, RunInvalidState, RunNotFound
+from xbot.intelligence.runner import (
+    PipelineRunner,
+    RunConflict,
+    RunInvalidState,
+    RunNotFound,
+    RunValidationError,
+)
 
 router = APIRouter(tags=["pipeline"], dependencies=[Depends(require_auth)])
 
-RunnerErrors = (RunConflict, RunInvalidState, RunNotFound)
+RunnerErrors = (RunConflict, RunInvalidState, RunNotFound, RunValidationError)
 
 
 def _runner(request: Request) -> PipelineRunner:
@@ -28,6 +34,8 @@ def _runner(request: Request) -> PipelineRunner:
 def _translate(e: Exception) -> HTTPException:
     if isinstance(e, RunNotFound):
         return HTTPException(status_code=404, detail=str(e))
+    if isinstance(e, RunValidationError):
+        return HTTPException(status_code=422, detail=str(e))
     return HTTPException(status_code=409, detail=str(e))
 
 
@@ -127,6 +135,18 @@ async def retry_run(run_id: int, request: Request) -> RunOut:
 async def cancel_run(run_id: int, request: Request) -> RunOut:
     try:
         run = await _runner(request).cancel(run_id)
+    except RunnerErrors as e:
+        raise _translate(e) from e
+    return RunOut.model_validate(run)
+
+
+@router.post(
+    "/pipeline/runs/{run_id}/review", response_model=RunOut, status_code=status.HTTP_202_ACCEPTED
+)
+async def review_run(run_id: int, body: ReviewIn, request: Request) -> RunOut:
+    """Approve one accepted draft, ask for different drafts, or reject today's post."""
+    try:
+        run = await _runner(request).resume_review(run_id, body.model_dump(exclude_none=True))
     except RunnerErrors as e:
         raise _translate(e) from e
     return RunOut.model_validate(run)

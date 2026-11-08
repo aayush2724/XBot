@@ -10,6 +10,12 @@ from the repo-root .env, so journaling from a terminal is one command.
     xbot answer <checkin_id> "..."  answer a check-in question
     xbot submit | xbot skip         resume a run waiting on check-ins
     xbot retry                      retry today's failed run
+    xbot drafts                     list today's drafts with ids and status
+    xbot edit <draft_id> "text"     replace a draft's text before approving it
+    xbot rate <draft_id> <1-5> ["feedback"]
+    xbot review approve <draft_id>  publish this draft (after M5) / approve it
+    xbot review regenerate ["feedback"]
+    xbot review reject ["reason"]
     xbot keygen                     print a value for XBOT_SECRET_KEY
 """
 
@@ -49,8 +55,35 @@ def _parser() -> argparse.ArgumentParser:
     sub.add_parser("submit", help="resume today's run after answering its check-ins")
     sub.add_parser("skip", help="resume today's run without more check-in answers")
     sub.add_parser("retry", help="retry today's failed run")
+    sub.add_parser("drafts", help="list today's drafts")
+    e = sub.add_parser("edit", help="replace a draft's text while it awaits review")
+    e.add_argument("draft_id", type=int)
+    e.add_argument("text")
+    rt = sub.add_parser("rate", help="rate a draft 1-5 with optional feedback")
+    rt.add_argument("draft_id", type=int)
+    rt.add_argument("rating", type=int)
+    rt.add_argument("feedback", nargs="?", default=None)
+    rv = sub.add_parser("review", help="approve / regenerate / reject today's drafts")
+    rv.add_argument("action", choices=["approve", "regenerate", "reject"])
+    rv.add_argument(
+        "arg", nargs="?", default=None, help="draft id for approve; feedback or reason otherwise"
+    )
     sub.add_parser("keygen", help="print a random value for XBOT_SECRET_KEY")
     return p
+
+
+def _print_drafts(drafts: list[dict[str, Any]]) -> None:
+    if not drafts:
+        print("drafts: (none)")
+        return
+    for d in drafts:
+        text = d.get("edited_text") or d["text"]
+        mark = {"accepted": "*", "approved": "+", "published": "#"}.get(d["status"], " ")
+        print(f"  {mark} draft {d['id']} [{d['label']}] attempt {d['attempt']} {d['status']}")
+        print(f"      {text}")
+        ev = d.get("evaluation") or {}
+        if ev.get("code_issues"):
+            print(f"      rejected by checks: {ev['code_issues'][0]}")
 
 
 def _print_run(run: dict[str, Any] | None) -> None:
@@ -150,6 +183,52 @@ async def run(argv: Sequence[str], client: httpx.AsyncClient) -> int:
             return 2
         r.raise_for_status()
         print(f"answered check-in #{args.checkin_id}")
+        return 0
+    if args.command == "drafts":
+        r = await client.get(f"/api/days/{today}/drafts")
+        r.raise_for_status()
+        _print_drafts(r.json())
+        return 0
+    if args.command == "edit":
+        r = await client.patch(f"/api/drafts/{args.draft_id}", json={"edited_text": args.text})
+        if r.status_code in (404, 409, 422):
+            print(f"error: {r.json().get('detail')}", file=sys.stderr)
+            return 2
+        r.raise_for_status()
+        print(f"draft {args.draft_id} edited")
+        return 0
+    if args.command == "rate":
+        body: dict[str, Any] = {"rating": args.rating}
+        if args.feedback:
+            body["feedback"] = args.feedback
+        r = await client.patch(f"/api/drafts/{args.draft_id}", json=body)
+        if r.status_code in (404, 409, 422):
+            print(f"error: {r.json().get('detail')}", file=sys.stderr)
+            return 2
+        r.raise_for_status()
+        print(f"draft {args.draft_id} rated {args.rating}")
+        return 0
+    if args.command == "review":
+        latest = view.get("latest_run")
+        if not latest:
+            print("error: no run for today", file=sys.stderr)
+            return 2
+        payload: dict[str, Any] = {"action": args.action}
+        if args.action == "approve":
+            if not args.arg:
+                print("error: approve needs a draft id (see `xbot drafts`)", file=sys.stderr)
+                return 2
+            payload["draft_id"] = int(args.arg)
+        elif args.action == "regenerate" and args.arg:
+            payload["feedback"] = args.arg
+        elif args.action == "reject" and args.arg:
+            payload["reason"] = args.arg
+        r = await client.post(f"/api/pipeline/runs/{latest['id']}/review", json=payload)
+        if r.status_code in (404, 409, 422):
+            print(f"error: {r.json().get('detail')}", file=sys.stderr)
+            return 2
+        r.raise_for_status()
+        print(f"run #{latest['id']}: {args.action} accepted, now {r.json()['status']}")
         return 0
     if args.command in ("submit", "skip", "retry"):
         latest = view.get("latest_run")

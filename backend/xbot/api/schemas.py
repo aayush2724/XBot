@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator
 
@@ -173,3 +173,16 @@ class CheckinAnswerIn(BaseModel):
 
 class NoPostIn(BaseModel):
     reason: str = Field(min_length=1, max_length=500)
+
+
+class DraftPatch(BaseModel):
+    edited_text: str | None = Field(default=None, max_length=25000)
+    rating: int | None = Field(default=None, ge=1, le=5)
+    feedback: str | None = Field(default=None, max_length=2000)
+
+
+class ReviewIn(BaseModel):
+    action: Literal["approve", "regenerate", "reject"]
+    draft_id: int | None = None
+    feedback: str | None = Field(default=None, max_length=2000)
+    reason: str | None = Field(default=None, max_length=500)

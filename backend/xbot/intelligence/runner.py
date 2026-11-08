@@ -31,6 +31,7 @@ from xbot.db.models import (
     RunStatus,
     RunTrigger,
 )
+from xbot.intelligence.checks import final_text_checks
 from xbot.intelligence.graph import GRAPH_VERSION, PipelineContext, build_graph
 from xbot.llm.base import TRANSIENT_ERROR_MARKERS, LLMProvider
 from xbot.logging import get_logger
@@ -61,6 +62,10 @@ class RunConflict(RunnerError):
 
 class RunInvalidState(RunnerError):
     """The operation does not apply to the run's current status (HTTP 409)."""
+
+
+class RunValidationError(RunnerError):
+    """The owner's input is not acceptable, e.g. an edited draft that breaks a rule (HTTP 422)."""
 
 
 def psycopg_dsn(url: str) -> str:
@@ -194,6 +199,40 @@ class PipelineRunner:
         if not await self._cas(run_id, {RunStatus.waiting_checkin}, RunStatus.running):
             raise RunConflict(f"run {run_id} was already resumed")
         self._launch(run_id, run.thread_id, Command(resume={"action": action}))
+        return await self._get(run_id)
+
+    async def resume_review(self, run_id: int, decision: dict[str, Any]) -> PipelineRun:
+        """Approve / regenerate / reject. Validates the decision against the pending interrupt and
+        the draft, then resumes under a compare-and-set so only one caller wins."""
+        action = decision.get("action")
+        if action not in ("approve", "regenerate", "reject"):
+            raise RunValidationError("action must be approve, regenerate or reject")
+        run = await self._get(run_id)
+        if run.status != RunStatus.waiting_review:
+            raise RunInvalidState(f"run {run_id} is {run.status.value}, not waiting_review")
+        pending = await self._pending_interrupt(run.thread_id, "review")
+        if action == "approve":
+            draft_id = decision.get("draft_id")
+            allowed = pending.get("draft_ids") or []
+            if not isinstance(draft_id, int) or draft_id not in allowed:
+                raise RunValidationError(f"draft_id must be one of the accepted drafts {allowed}")
+            async with self.db.session_factory() as session:
+                draft = await session.get(DraftRecord, draft_id)
+                prefs = await load_preferences(session)
+            if draft is None:
+                raise RunValidationError(f"draft {draft_id} not found")
+            final_text = (draft.edited_text or draft.text).strip()
+            issues = final_text_checks(
+                text=final_text,
+                max_chars=prefs.max_post_chars,
+                allow_links=prefs.allow_links,
+                recent_texts=[],
+            )
+            if issues:
+                raise RunValidationError("final text fails checks: " + "; ".join(issues))
+        if not await self._cas(run_id, {RunStatus.waiting_review}, RunStatus.running):
+            raise RunConflict(f"run {run_id} was already resumed")
+        self._launch(run_id, run.thread_id, Command(resume=dict(decision)))
         return await self._get(run_id)
 
     async def retry(self, run_id: int) -> PipelineRun:
@@ -369,7 +408,7 @@ class PipelineRunner:
             await session.commit()
             return row is not None
 
-    async def _expect_interrupt(self, thread_id: str, kind: str) -> None:
+    async def _pending_interrupt(self, thread_id: str, kind: str) -> dict[str, Any]:
         snap = await self.graph.aget_state(self._config(thread_id))
         if not snap.interrupts:
             raise RunInvalidState("the run is not waiting for input")
@@ -377,6 +416,10 @@ class PipelineRunner:
         actual = value.get("kind") if isinstance(value, dict) else None
         if actual != kind:
             raise RunInvalidState(f"the run is waiting for {actual!r}, not {kind!r}")
+        return dict(value)
+
+    async def _expect_interrupt(self, thread_id: str, kind: str) -> None:
+        await self._pending_interrupt(thread_id, kind)
 
     async def _get(self, run_id: int) -> PipelineRun:
         async with self.db.session_factory() as session:

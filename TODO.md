@@ -28,7 +28,7 @@ Legend: [ ] pending · [~] in progress · [x] done · [!] blocked on user
 - [x] Owner reviewed the LangGraph design; go-ahead given
 - [x] M3 provider + graph core (collect, understand, ask_checkin ⟂, discover) + runner + Postgres checkpointer (21 new tests, 56 total)
 - [x] M4a strategy, generate (one draft-set call), evaluate (code checks + model), revise loop, drafts table, review interrupt, publish stub (17 new tests, 73 total)
-- [ ] M4b review and drafts endpoints, CLI review
+- [x] M4b drafts endpoints (list, edit, rate), review endpoint with compare-and-set and final-text validation, CLI drafts/edit/rate/review (6 new tests, 79 total)
 
 ## Phase 5 — Publishing
 - [ ] X OAuth 2.0 PKCE connect + token refresh

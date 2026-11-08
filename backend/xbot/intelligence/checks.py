@@ -141,3 +141,24 @@ def code_checks(
         issues.append(f"near-duplicate of a published post (jaccard {score}): {other}")
     issues.extend(coverage_issues(text, claims, facts_by_id))
     return issues
+
+
+def final_text_checks(
+    *, text: str, max_chars: int, allow_links: bool, recent_texts: list[str]
+) -> list[str]:
+    """Checks that still apply to owner-edited text at approval time. Coverage is skipped
+    because the owner's own words are the ground truth."""
+    issues: list[str] = []
+    if not text.strip():
+        issues.append("post text is empty")
+    length = weighted_length(text)
+    if length > max_chars:
+        issues.append(f"too long: {length} weighted chars > {max_chars}")
+    urls = find_urls(text)
+    if urls and not allow_links:
+        issues.append(f"contains a link but links are disabled: {urls[0][:60]}")
+    for name in scan_secrets(text):
+        issues.append(f"possible secret in text: {name}")
+    for other, score in near_duplicates(text, recent_texts):
+        issues.append(f"near-duplicate of a published post (jaccard {score}): {other}")
+    return issues

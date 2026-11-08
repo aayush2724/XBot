@@ -259,3 +259,18 @@ was removed. Two tests then failed because the mock's default fact text carried 
 the check-in "Q/A" format, which the sentence splitter treated as two sentences; the mock now
 emits single-line text, and the coverage rule also accepts a fragment contained in a claimed
 sentence so real multi-line posts are not rejected unfairly.
+
+### 21. M4b: the owner can review, edit, rate and decide
+
+**What.** Draft endpoints, the review endpoint and CLI commands were added on top of the M4a
+graph; 79 tests pass.
+
+**Why these rules.**
+- Text edits are allowed only while the run waits for review: after approval the text is what
+  was (or will be) published, and rewriting it would break the audit trail. Ratings and feedback
+  stay editable forever because they feed future prompts.
+- Edited text is re-checked for length, links and secrets at approval time, but not for claim
+  coverage: the owner's own words are the ground truth, while the model's words needed proof.
+- The approval endpoint resumes the graph through a compare-and-set because the advisor's
+  review of the design showed that a double click or a slow network would otherwise drive one
+  thread twice.
