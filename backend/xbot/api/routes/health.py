@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from pydantic import BaseModel
 
 from xbot import __version__
@@ -18,6 +18,8 @@ class Health(BaseModel):
     db: str
     timezone: str
     llm_provider: str
+    llm_model: str
+    pipeline: str
     publisher: str
     mock: bool
     llm_configured: bool
@@ -25,7 +27,7 @@ class Health(BaseModel):
 
 
 @router.get("/health", response_model=Health)
-async def health(settings: SettingsDep, db: DbDep) -> Health:
+async def health(request: Request, settings: SettingsDep, db: DbDep) -> Health:
     db_ok = await db.ping()
     return Health(
         status="ok" if db_ok else "degraded",
@@ -34,6 +36,10 @@ async def health(settings: SettingsDep, db: DbDep) -> Health:
         db="ok" if db_ok else "unreachable",
         timezone=settings.timezone,
         llm_provider=settings.llm_provider,
+        llm_model=settings.llm_model,
+        pipeline="ready"
+        if getattr(request.app.state, "runner", None) is not None
+        else "unavailable",
         publisher=settings.publisher,
         mock=settings.is_mock,
         llm_configured=bool(settings.anthropic_api_key),

@@ -13,6 +13,8 @@ from xbot.api.deps import CSRF_HEADER, CSRF_VALUE
 from xbot.api.router import api_router
 from xbot.config import Settings, get_settings
 from xbot.db.base import Database
+from xbot.intelligence.runner import PipelineRunner
+from xbot.llm.factory import build_provider
 from xbot.logging import configure_logging, get_logger
 
 SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
@@ -38,9 +40,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             log.warning("database unreachable at startup; health will report degraded")
         if settings.is_mock:
             log.warning("MOCK providers active", llm=settings.llm_provider, pub=settings.publisher)
+        else:
+            log.info("llm provider", provider=settings.llm_provider, model=settings.llm_model)
+        app.state.llm = build_provider(settings)
+        runner = PipelineRunner(db, settings, app.state.llm)
+        await runner.startup()
+        await runner.recover()
+        app.state.runner = runner
         try:
             yield
         finally:
+            await runner.shutdown()
             await db.dispose()
 
     app = FastAPI(title="XBot", version="0.1.0", lifespan=lifespan, docs_url="/api/docs")

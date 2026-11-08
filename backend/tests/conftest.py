@@ -68,9 +68,18 @@ async def app(settings: Settings):  # type: ignore[no-untyped-def]
         yield application
         db: Database = application.state.db
         tables = ", ".join(f'"{t.name}"' for t in reversed(Base.metadata.sorted_tables))
-        if tables:
-            async with db.engine.begin() as conn:
+        async with db.engine.begin() as conn:
+            if tables:
                 await conn.execute(text(f"TRUNCATE {tables} RESTART IDENTITY CASCADE"))
+            # LangGraph's checkpoint tables are outside Base.metadata; clear them too so a
+            # reused run id can never resume a thread left over from an earlier test.
+            await conn.execute(
+                text(
+                    "DO $$ BEGIN IF to_regclass('public.checkpoints') IS NOT NULL THEN "
+                    "EXECUTE 'TRUNCATE checkpoints, checkpoint_blobs, checkpoint_writes'; "
+                    "END IF; END $$;"
+                )
+            )
 
 
 @pytest.fixture

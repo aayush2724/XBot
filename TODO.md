@@ -25,8 +25,8 @@ Legend: [ ] pending · [~] in progress · [x] done · [!] blocked on user
 - [x] M2 GitHub source: public-only sync, email-or-login author match, diff opt-in, repo settings (11 tests, real sync verified)
 - [x] LangGraph research: versions, signatures, prototypes (interrupt/resume, crash recovery, pool saver), advisor review
 - [x] D4 model client: Anthropic SDK directly
-- [!] Owner reviewing docs/phase-2-langgraph-design.md before M3 starts
-- [ ] M3 provider + graph core (collect, understand, ask_checkin, discover) + runner + checkpointer
+- [x] Owner reviewed the LangGraph design; go-ahead given
+- [x] M3 provider + graph core (collect, understand, ask_checkin ⟂, discover) + runner + Postgres checkpointer (21 new tests, 56 total)
 - [ ] M4a strategy, generate, evaluate, revise loop, review interrupt
 - [ ] M4b review and drafts endpoints, CLI review
 

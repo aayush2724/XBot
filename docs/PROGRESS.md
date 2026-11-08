@@ -85,3 +85,39 @@ resume, pool-based saver), checked the `ChatAnthropic` request payload offline, 
 `docs/phase-2-langgraph-design.md` (rev 3 final) with a status model, compare-and-set resumes,
 one draft-set call instead of fan-out, bounded recovery, and M3/M4a/M4b/M5 redefined. No pipeline
 code written; awaiting the owner's go-ahead and the model-client decision.
+
+## 2026-11-08 — M3 complete: LLM provider, graph core, runner
+
+**Implemented.** `xbot/llm/` (provider protocol, Anthropic SDK provider with adaptive thinking,
+effort, one cache breakpoint and typed errors; mock provider with scripted outputs and
+`[MOCK]`-labelled defaults; pricing with separate cached and uncached rates; factory).
+`xbot/intelligence/` (Stage 1 and Stage 2 schemas, prompts, guards, prompt assembly, `call_stage`
+persisting every attempt with a truncation retry at lower effort, the LangGraph graph
+`collect → understand → ask_checkin ⟂ / discover → finish` with `Command` routing and a check-in
+round cap of 2, and `PipelineRunner` owning the compiled graph, the psycopg-pool Postgres
+checkpointer, per-run locks, compare-and-set status transitions, start/resume/retry/cancel/
+recover and post-stream reconciliation). Tables `pipeline_runs` (thread id, graph version,
+recover attempts, live-status partial unique index), `pipeline_stage_runs`, `checkins.run_id`
+(migration 0004). Alembic ignores LangGraph's `checkpoint*` tables. Endpoints for run, run
+detail (with pending-interrupt payload and next nodes), list, submit/skip check-ins, retry,
+cancel. CLI `run`, `status`, `answer`, `submit`, `skip`, `retry`. Health reports the model and
+runner.
+
+**Tests.** 56 passing (21 new): provider payload (cache breakpoint, thinking, effort, schema),
+refusal/truncation/empty-output mapping, cache-aware pricing; guard rules; DSN conversion;
+empty day → check-ins → resume with no duplicate check-in rows; round cap → no_post; skip; nothing
+worth sharing → no_post; second start 409 and supersede; concurrent resume → one 202 one 409;
+failure keeps the checkpoint and retry re-runs only the failed node; startup recovery resumes a
+transient failure once and fails a run with no checkpoint; cancel frees the day; every checkpoint
+is JSON-only; `alembic check` reports no drift with LangGraph tables present; `setup()` twice.
+ruff and mypy strict clean.
+
+**Live run (mock model).** `xbot run` on an empty day → two check-in questions → `xbot submit`
+refused until answered → answered → resumed → `insights_ready` with two succeeded stage rows.
+
+**Limitations.** Runs end at `insights_ready` until M4a adds strategy, generation and
+evaluation. Recovery is single-process until M6 adds the leader lock. No real model call has
+been made yet (no API key); the provider's request shape is covered by the payload test.
+
+**Next.** M4a: strategy, generate (one draft-set call), evaluate with code checks, revise loop,
+`drafts` table, `review` interrupt node, autonomous bypass.

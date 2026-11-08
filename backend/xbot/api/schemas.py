@@ -7,7 +7,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator
 
-from xbot.db.models import DayDecision, EntryKind, EntrySource, QuestStatus
+from xbot.db.models import DayDecision, EntryKind, EntrySource, QuestStatus, RunStatus, RunTrigger
 
 
 class QuestOut(BaseModel):
@@ -55,6 +55,45 @@ class CommitOut(BaseModel):
         return self.diff is not None
 
 
+class RunOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    local_date: date
+    trigger: RunTrigger
+    status: RunStatus
+    outcome_reason: str | None
+    recover_attempts: int
+    total_input_tokens: int
+    total_output_tokens: int
+    total_cache_read_tokens: int
+    total_cost_usd: float
+    started_at: datetime
+    finished_at: datetime | None
+    error: str | None
+
+
+class StageOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    stage: int
+    attempt: int
+    status: str
+    model: str | None
+    input_tokens: int
+    output_tokens: int
+    cache_read_tokens: int
+    cost_usd: float
+    duration_ms: int
+    request_id: str | None
+    error: str | None
+    output: dict[str, Any] | None
+
+
+class RunDetail(RunOut):
+    next_nodes: list[str] = Field(default_factory=list)
+    waiting_for: dict[str, Any] | None = None
+    stages: list[StageOut] = Field(default_factory=list)
+
+
 class DayView(BaseModel):
     local_date: date
     exists: bool
@@ -65,6 +104,7 @@ class DayView(BaseModel):
     entries: list[EntryOut]
     checkins: list[CheckinOut]
     commits: list[CommitOut] = Field(default_factory=list)
+    latest_run: RunOut | None = None
 
 
 class QuestsIn(BaseModel):

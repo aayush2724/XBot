@@ -36,6 +36,7 @@ class Settings(BaseSettings):
     frontend_dist: Path | None = None
 
     llm_provider: Literal["anthropic", "mock"] = "anthropic"
+    llm_model: str = "claude-opus-5"
     publisher: Literal["x", "mock"] = "x"
 
     # External credentials are read without the XBOT_ prefix so they match vendor conventions.

@@ -127,6 +127,26 @@ async def create_checkins(
     return rows
 
 
+async def ensure_checkins(
+    session: AsyncSession, local_date: date, run_id: int, questions: list[str]
+) -> list[Checkin]:
+    """Idempotent: creates only the questions that do not already exist for this run."""
+    await get_or_create_day(session, local_date)
+    existing = (
+        (await session.execute(select(Checkin).where(Checkin.run_id == run_id))).scalars().all()
+    )
+    have = {c.question.strip() for c in existing}
+    new_rows = [
+        Checkin(local_date=local_date, question=q.strip(), run_id=run_id)
+        for q in questions
+        if q.strip() and q.strip() not in have
+    ]
+    if new_rows:
+        session.add_all(new_rows)
+        await session.commit()
+    return [*existing, *new_rows]
+
+
 async def answer_checkin(session: AsyncSession, checkin_id: int, answer: str) -> Checkin:
     checkin = await session.get(Checkin, checkin_id)
     if checkin is None:

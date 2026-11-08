@@ -20,6 +20,14 @@ if config.config_file_name is not None:
 config.set_main_option("sqlalchemy.url", get_settings().database_url)
 target_metadata = Base.metadata
 
+LANGGRAPH_TABLE_PREFIX = "checkpoint"
+
+
+def include_object(obj, name, type_, reflected, compare_to):  # type: ignore[no-untyped-def]
+    """LangGraph owns its checkpoint tables (created by AsyncPostgresSaver.setup()); never let
+    autogenerate try to drop or alter them."""
+    return not (type_ == "table" and name is not None and name.startswith(LANGGRAPH_TABLE_PREFIX))
+
 
 def run_migrations_offline() -> None:
     context.configure(
@@ -27,13 +35,16 @@ def run_migrations_offline() -> None:
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
+        include_object=include_object,
     )
     with context.begin_transaction():
         context.run_migrations()
 
 
 def _do_run_migrations(connection) -> None:  # type: ignore[no-untyped-def]
-    context.configure(connection=connection, target_metadata=target_metadata)
+    context.configure(
+        connection=connection, target_metadata=target_metadata, include_object=include_object
+    )
     with context.begin_transaction():
         context.run_migrations()
 

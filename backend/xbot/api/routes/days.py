@@ -5,6 +5,8 @@ from __future__ import annotations
 from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from xbot.api.deps import SessionDep, SettingsDep, require_auth
 from xbot.api.schemas import (
@@ -18,15 +20,41 @@ from xbot.api.schemas import (
     QuestOut,
     QuestsIn,
     QuestStatusIn,
+    RunOut,
 )
-from xbot.db.models import Day, DayDecision, GithubCommit
+from xbot.db.models import Day, DayDecision, GithubCommit, PipelineRun
 from xbot.ingestion.github import list_commits_for_day
 from xbot.services import days as svc
 
 router = APIRouter(tags=["days"], dependencies=[Depends(require_auth)])
 
 
-def _view(local_date: date, day: Day | None, commits: list[GithubCommit] | None = None) -> DayView:
+async def _latest_run(session: AsyncSession, local_date: date) -> RunOut | None:
+    stmt = (
+        select(PipelineRun)
+        .where(PipelineRun.local_date == local_date)
+        .order_by(PipelineRun.id.desc())
+        .limit(1)
+    )
+    run = (await session.execute(stmt)).scalar_one_or_none()
+    return RunOut.model_validate(run) if run else None
+
+
+async def _full_view(session: AsyncSession, local_date: date) -> DayView:
+    return _view(
+        local_date,
+        await svc.get_day(session, local_date),
+        await list_commits_for_day(session, local_date),
+        await _latest_run(session, local_date),
+    )
+
+
+def _view(
+    local_date: date,
+    day: Day | None,
+    commits: list[GithubCommit] | None = None,
+    latest_run: RunOut | None = None,
+) -> DayView:
     commit_views = [CommitOut.model_validate(c) for c in commits or []]
     if day is None:
         return DayView(
@@ -39,6 +67,7 @@ def _view(local_date: date, day: Day | None, commits: list[GithubCommit] | None 
             entries=[],
             checkins=[],
             commits=commit_views,
+            latest_run=latest_run,
         )
     return DayView(
         local_date=day.local_date,
@@ -50,22 +79,18 @@ def _view(local_date: date, day: Day | None, commits: list[GithubCommit] | None 
         entries=[EntryOut.model_validate(e) for e in day.entries],
         checkins=[CheckinOut.model_validate(c) for c in day.checkins],
         commits=commit_views,
+        latest_run=latest_run,
     )
 
 
 @router.get("/days/today", response_model=DayView)
 async def today(session: SessionDep, settings: SettingsDep) -> DayView:
-    d = svc.local_today(settings)
-    return _view(d, await svc.get_day(session, d), await list_commits_for_day(session, d))
+    return await _full_view(session, svc.local_today(settings))
 
 
 @router.get("/days/{local_date}", response_model=DayView)
 async def day(local_date: date, session: SessionDep) -> DayView:
-    return _view(
-        local_date,
-        await svc.get_day(session, local_date),
-        await list_commits_for_day(session, local_date),
-    )
+    return await _full_view(session, local_date)
 
 
 @router.put("/days/{local_date}/quests", response_model=DayView)
@@ -118,4 +143,4 @@ async def answer(checkin_id: int, body: CheckinAnswerIn, session: SessionDep) ->
 @router.post("/days/{local_date}/no-post", response_model=DayView)
 async def no_post(local_date: date, body: NoPostIn, session: SessionDep) -> DayView:
     await svc.mark_no_post(session, local_date, body.reason)
-    return _view(local_date, await svc.get_day(session, local_date))
+    return await _full_view(session, local_date)

@@ -12,11 +12,14 @@ from sqlalchemy import (
     Date,
     DateTime,
     Enum,
+    Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -49,6 +52,27 @@ class EntrySource(StrEnum):
     dashboard = "dashboard"
     cli = "cli"
     api = "api"
+
+
+class RunStatus(StrEnum):
+    running = "running"
+    waiting_checkin = "waiting_checkin"
+    waiting_review = "waiting_review"
+    insights_ready = "insights_ready"
+    published = "published"
+    no_post = "no_post"
+    publish_failed = "publish_failed"
+    failed = "failed"
+    superseded = "superseded"
+    cancelled = "cancelled"
+
+
+LIVE_RUN_STATUSES = (RunStatus.running, RunStatus.waiting_checkin, RunStatus.waiting_review)
+
+
+class RunTrigger(StrEnum):
+    scheduled = "scheduled"
+    manual = "manual"
 
 
 def _enum(enum_cls: type[StrEnum], name: str) -> Enum:
@@ -130,7 +154,9 @@ class Checkin(Base):
     local_date: Mapped[date] = mapped_column(
         ForeignKey("days.local_date", ondelete="CASCADE"), nullable=False, index=True
     )
-    run_id: Mapped[int | None] = mapped_column(Integer)  # FK to pipeline_runs added in M3
+    run_id: Mapped[int | None] = mapped_column(
+        ForeignKey("pipeline_runs.id", ondelete="SET NULL"), index=True
+    )
     question: Mapped[str] = mapped_column(Text, nullable=False)
     answer: Mapped[str | None] = mapped_column(Text)
     asked_at: Mapped[datetime] = mapped_column(
@@ -139,6 +165,66 @@ class Checkin(Base):
     answered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     day: Mapped[Day] = relationship(back_populates="checkins")
+
+
+class PipelineRun(Base):
+    __tablename__ = "pipeline_runs"
+    __table_args__ = (
+        Index(
+            "uq_pipeline_runs_live_per_day",
+            "local_date",
+            unique=True,
+            postgresql_where=text("status IN ('running', 'waiting_checkin', 'waiting_review')"),
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    local_date: Mapped[date] = mapped_column(
+        ForeignKey("days.local_date", ondelete="CASCADE"), nullable=False, index=True
+    )
+    thread_id: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    graph_version: Mapped[str] = mapped_column(String(16), nullable=False)
+    trigger: Mapped[RunTrigger] = mapped_column(_enum(RunTrigger, "run_trigger"), nullable=False)
+    status: Mapped[RunStatus] = mapped_column(
+        _enum(RunStatus, "run_status"), default=RunStatus.running, nullable=False
+    )
+    outcome_reason: Mapped[str | None] = mapped_column(Text)
+    recover_attempts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    total_input_tokens: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    total_output_tokens: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    total_cache_read_tokens: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    total_cost_usd: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    error: Mapped[str | None] = mapped_column(Text)
+
+
+class PipelineStageRun(Base):
+    __tablename__ = "pipeline_stage_runs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    run_id: Mapped[int] = mapped_column(
+        ForeignKey("pipeline_runs.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    stage: Mapped[int] = mapped_column(Integer, nullable=False)
+    attempt: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    input: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    output: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    model: Mapped[str | None] = mapped_column(String(64))
+    input_tokens: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    output_tokens: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    cache_read_tokens: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    cache_write_tokens: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    cost_usd: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    duration_ms: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    request_id: Mapped[str | None] = mapped_column(String(64))
+    error: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
 
 
 class RepoSetting(TimestampMixin, Base):
@@ -207,9 +293,14 @@ __all__ = [
     "GithubCommit",
     "GithubSync",
     "JournalEntry",
+    "LIVE_RUN_STATUSES",
+    "PipelineRun",
+    "PipelineStageRun",
     "Quest",
     "QuestStatus",
     "RepoSetting",
+    "RunStatus",
+    "RunTrigger",
     "Setting",
     "TimestampMixin",
 ]
