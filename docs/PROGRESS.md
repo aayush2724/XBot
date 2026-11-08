@@ -221,3 +221,27 @@ flag; the flag is now committed before the error is raised.
 README). Threads and media are not supported; the payload type already carries segments.
 
 **Next.** M6: advisory-lock scheduler leadership, 10-minute catch-up tick, leader-only recovery.
+
+## 2026-11-09 — OpenRouter provider (owner chose Gemini 3.5 Flash-Lite)
+
+**Implemented.** `xbot/llm/openrouter_provider.py` (OpenAI-compatible chat completions; strict
+`response_format: json_schema`; `provider.require_parameters`; effort mapped to
+`reasoning.effort` with reasoning excluded from the reply; one transient retry; JSON-mode
+fallback with the schema in the prompt if the backend rejects strict schemas, sticky for the
+process; code-fence stripping; Pydantic validation with a validation failure mapped to
+`LLMTruncated` so `call_stage` retries once; OpenRouter-reported cost preferred, pricing table as
+fallback; cached prompt tokens subtracted before pricing). `xbot/llm/json_schema.py` translates
+Pydantic models into self-contained strict schemas (no `$ref`, titles or defaults; closed
+objects; all properties required). Settings gained `openrouter` and `OPENROUTER_API_KEY`,
+provider-aware `llm_configured`, and startup errors for a mismatched provider and model id.
+README and `.env.example` document the switch.
+
+**Tests.** 116 passing (18 new): strict schema checks for all five stage schemas, payload shape,
+cost from the response and from the table, fence stripping, HTTP error mapping (402, 401, 429,
+503, 400), transient retry, schema-rejection fallback, invalid JSON, length and refusal, missing
+key and bad model id, settings and factory. Also fixed a date-dependent test that broke when the
+local date rolled over.
+
+**Not yet verified against the live API.** Mocked HTTP cannot prove that Gemini accepts the
+translated schemas. Next step once `OPENROUTER_API_KEY` is in `.env`: one live call per stage
+schema, then one real day end to end.

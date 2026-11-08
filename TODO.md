@@ -35,6 +35,10 @@ Legend: [ ] pending · [~] in progress · [x] done · [!] blocked on user
 - [x] M5 claim-before-network publish service, NotSent/MaybeSent classes, find_recent, manual retry
 - [x] M5 publish node, history and consistency endpoints, published posts feed strategy (19 new tests, 98 total)
 
+## Provider
+- [x] OpenRouter provider + strict schema translation (18 tests)
+- [!] Live verification with OPENROUTER_API_KEY (one call per stage, then one real day)
+
 ## Phase 6 — Dashboard
 - [ ] Frontend scaffold
 - [ ] Today / journal / drafts / history calendar / settings

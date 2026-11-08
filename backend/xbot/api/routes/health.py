@@ -52,7 +52,7 @@ async def health(request: Request, settings: SettingsDep, db: DbDep) -> Health:
         else "unavailable",
         publisher=settings.publisher,
         mock=settings.is_mock,
-        llm_configured=bool(settings.anthropic_api_key),
+        llm_configured=settings.llm_configured,
         x_app_configured=bool(settings.x_client_id and settings.x_client_secret),
         x_connected=x_connected,
     )

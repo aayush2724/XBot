@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import httpx
 import pytest
@@ -11,7 +13,8 @@ import pytest
 from xbot.cli import run as cli_run
 from xbot.db.models import DraftRecord, DraftStatus, PipelineRun
 
-D = "2026-11-08"
+# The CLI always works on the server's "today", so these tests must use the real local date.
+D = str(datetime.now(ZoneInfo("Asia/Kolkata")).date())
 
 
 async def _wait(app: Any, run_id: int) -> str:

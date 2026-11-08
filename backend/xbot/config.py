@@ -35,13 +35,17 @@ class Settings(BaseSettings):
     public_url: str = "http://127.0.0.1:8000"
     frontend_dist: Path | None = None
 
-    llm_provider: Literal["anthropic", "mock"] = "anthropic"
+    llm_provider: Literal["anthropic", "openrouter", "mock"] = "anthropic"
     llm_model: str = "claude-opus-5"
     publisher: Literal["x", "mock"] = "x"
 
     # External credentials are read without the XBOT_ prefix so they match vendor conventions.
     anthropic_api_key: str | None = Field(
         default=None, validation_alias=AliasChoices("ANTHROPIC_API_KEY", "XBOT_ANTHROPIC_API_KEY")
+    )
+    openrouter_api_key: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("OPENROUTER_API_KEY", "XBOT_OPENROUTER_API_KEY"),
     )
     github_token: str | None = Field(
         default=None, validation_alias=AliasChoices("GITHUB_TOKEN", "XBOT_GITHUB_TOKEN")
@@ -63,6 +67,14 @@ class Settings(BaseSettings):
         return self.llm_provider == "mock" or self.publisher == "mock"
 
     @property
+    def llm_configured(self) -> bool:
+        if self.llm_provider == "anthropic":
+            return bool(self.anthropic_api_key)
+        if self.llm_provider == "openrouter":
+            return bool(self.openrouter_api_key)
+        return True
+
+    @property
     def fernet_key(self) -> bytes:
         """Derive a 32-byte url-safe base64 key for Fernet from the free-form secret."""
         digest = hashlib.sha256(f"xbot-fernet:{self.secret_key}".encode()).digest()
@@ -79,6 +91,15 @@ class Settings(BaseSettings):
             problems.append("XBOT_DASHBOARD_PASSWORD is empty or the example value")
         if self.env == "prod" and self.is_mock:
             problems.append("mock providers are enabled in prod")
+        if self.llm_provider == "openrouter" and "/" not in self.llm_model:
+            problems.append(
+                "XBOT_LLM_PROVIDER=openrouter needs XBOT_LLM_MODEL like "
+                "google/gemini-3.5-flash-lite"
+            )
+        if self.llm_provider == "anthropic" and "/" in self.llm_model:
+            problems.append(
+                "XBOT_LLM_MODEL looks like an OpenRouter id but the provider is anthropic"
+            )
         return problems
 
 

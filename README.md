@@ -46,3 +46,20 @@ containing a link costs about $0.20), so you need a developer account with credi
 Tokens are stored encrypted with `XBOT_SECRET_KEY` and refreshed automatically. If X ever rejects
 the refresh token, the dashboard shows "reconnect needed" and `xbot connect-x` repeats the flow.
 Set `XBOT_PUBLISHER=x` to post for real; `XBOT_PUBLISHER=mock` keeps everything local.
+
+
+## Choosing the model provider
+
+XBot calls the model through one small interface, so the provider is a setting.
+
+| Provider | `.env` | Notes |
+|---|---|---|
+| Anthropic (default) | `XBOT_LLM_PROVIDER=anthropic`, `XBOT_LLM_MODEL=claude-opus-5`, `ANTHROPIC_API_KEY=…` | Best quality; about $6–12 a month at one run a day. `claude-sonnet-5` is about $3. |
+| OpenRouter | `XBOT_LLM_PROVIDER=openrouter`, `XBOT_LLM_MODEL=google/gemini-3.5-flash-lite`, `OPENROUTER_API_KEY=…` | Any `vendor/model` id with structured-output support. Gemini 3.5 Flash-Lite is about $0.60 a month. Get a key and add credits at <https://openrouter.ai/keys>. |
+| Mock | `XBOT_LLM_PROVIDER=mock` | Development only; every output is labelled `[MOCK]`. |
+
+With OpenRouter, XBot sends a strict JSON schema derived from each stage's Pydantic model and
+asks OpenRouter to route only to backends that honour it. If a backend rejects strict schemas,
+XBot switches once to JSON mode with the schema in the prompt; Pydantic validates every reply
+either way. The grounding guards, coverage checks and secret scan are plain code and apply
+whatever the model.

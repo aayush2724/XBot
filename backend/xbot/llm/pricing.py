@@ -9,6 +9,8 @@ PRICES_PER_MTOK: dict[str, tuple[float, float, float, float]] = {
     "claude-opus-5": (5.00, 25.00, 0.50, 6.25),
     "claude-sonnet-5": (2.00, 10.00, 0.20, 2.50),
     "claude-haiku-4-5": (1.00, 5.00, 0.10, 1.25),
+    # OpenRouter ids (fallback only; OpenRouter usually reports the exact cost per call)
+    "google/gemini-3.5-flash-lite": (0.30, 2.50, 0.03, 0.0833),
 }
 FALLBACK = PRICES_PER_MTOK["claude-opus-5"]  # conservative when a model id is unknown
 

@@ -297,3 +297,30 @@ graph; 79 tests pass.
 **Test expectation changes.** Earlier milestones asserted `publish_failed` because no publisher
 existed; with the mock publisher configured in tests, approval now ends in `published`, and
 those assertions were updated rather than kept as historical artefacts.
+
+## 2026-11-09
+
+### 23. Model provider: OpenRouter with Gemini 3.5 Flash-Lite
+
+**What.** The owner asked whether a free key could replace Anthropic, then compared free and
+low-cost OpenRouter models, and chose `google/gemini-3.5-flash-lite`. An OpenRouter provider was
+added beside the Anthropic one; switching is a `.env` change.
+
+**Why this model.** Pulled OpenRouter's live model list: of 461 models, 16 were free, and only a
+few free ones enforce JSON schemas; free endpoints also carry daily caps and may log prompts
+(here, journal notes). Among paid models with structured-output support, XBot's volume (about
+20k input and 6k output tokens a day) makes nearly everything cheap; Flash-Lite at roughly $0.60
+a month was the owner's balance of quality and cost. Claude Sonnet 5 (about $3) and Opus 5
+(about $7.50) remain one setting away.
+
+**Why the adapter looks like this.** Gemini's structured outputs are stricter than Anthropic's
+about schema shape, so a translator inlines references and closes every object. OpenAI-style
+usage counts cached tokens inside prompt tokens, so they are subtracted before pricing (the same
+double-count the advisor caught for the LangChain path). A pricing row was added because the
+unknown-model fallback prices at Opus rates and would have overstated cost about fifteen-fold.
+If strict schemas are ever rejected, JSON mode plus Pydantic validation keeps the pipeline
+working instead of failing.
+
+**Incident.** The local date rolled over to 2026-11-09 during the work, which broke a CLI test
+that seeded drafts for a fixed date while the CLI asks the server for "today". That test now
+uses the real local date.
