@@ -1,6 +1,4 @@
 # secrets
-.env
-.env.*
 !.env.example
 *.pem
 *.key
@@ -27,6 +25,6 @@ dist/
 postgres-data/
 
 # editors / os
-.vscode/
 .idea/
 .DS_Store
+config.bat
