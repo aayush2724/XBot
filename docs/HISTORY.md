@@ -225,3 +225,14 @@ new commits are written without it. The repository had no remote, so the rewrite
 else.
 
 **Why.** The owner wants the project history to read as their own work log.
+
+### 19. Prepared for the first push to GitHub (private)
+
+**What.** Before pushing, the full history was scanned for key-shaped strings (none found) and
+the owner's real email in a GitHub-sync test fixture was replaced with a placeholder. The
+repository is to be created private at `github.com/aayush2724/Xbot`.
+
+**Why private.** The repository holds the owner's personal voice-profile prompt and, in the
+history, the email fixture from M2. Nothing is secret, but there is no reason to publish yet.
+Going public later is a settings change; if that happens, consider whether the earlier fixture
+commit matters (the email is already visible in the owner's public commit metadata).

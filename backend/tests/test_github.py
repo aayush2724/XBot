@@ -24,7 +24,7 @@ from xbot.preferences import Preferences
 TZ = ZoneInfo("Asia/Kolkata")
 D = date(2026, 11, 8)
 USER = "aayush2724"
-EMAIL = "aayush2615@gmail.com"
+EMAIL = "owner@example.com"
 API = "https://api.github.com"
 SHA_A, SHA_B, SHA_C, SHA_D = "a" * 40, "b" * 40, "c" * 40, "d" * 40
 
