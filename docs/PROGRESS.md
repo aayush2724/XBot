@@ -40,3 +40,37 @@ ruff and mypy (strict) clean. Real uvicorn smoke test: health `db: ok`, wrong pa
 **Limitations.** No tables yet; Dockerfile has no frontend stage until M7.
 
 **Next.** M1: days, quests, journal, check-ins, preferences, CLI.
+
+## 2026-11-08 — M1 complete
+
+**Implemented.** Tables `days`, `quests`, `journal_entries`, `checkins`, `settings` (migration
+0002); day service with lazy day creation, 3-quest limit with status preservation on re-submit,
+journal CRUD, check-in answers, no-post decision; typed `Preferences` with validation and the
+autonomous-mode confirmation phrase; routes under `/api/days`, `/api/quests`, `/api/entries`,
+`/api/checkins`, `/api/settings`; `xbot` CLI (`today`, `log`, `quests`, `done`, `keygen`).
+
+**Tests.** 24 passing in total; ruff and mypy strict clean. Real CLI round-trip against a live
+server verified.
+
+## 2026-11-08 — M2 complete
+
+**Implemented.** Ingestion contracts (`SourceItem`, `ActivitySource`, `DayContext`); journal
+source; GitHub client with retries and rate-limit detection; sync that lists the owner's repos
+(plus `extra_repos`), keeps only `private == false`, skips excluded or stale repos, queries
+commits in the IST day window converted to UTC, matches author by configured email or login
+(the `author` API filter is not used), fetches stats and files, stores diffs only for repos with
+`include_diffs`; `GitHubSource` renders commits as source items; routes for sync and per-repo
+settings; commits included in the day view. Migration 0003.
+
+**Tests.** 35 passing in total (11 new, GitHub API mocked with respx): public-only filter,
+day-bound query params, email-or-login matching, diff truncation and idempotent re-sync, excluded
+repos, rate limit recorded as error, 5xx retry, missing username, route and repo-settings flow.
+
+**Real run.** Live sync against `aayush2724` with the gh token: 2026-11-07 found 1 commit,
+2026-11-05 found 5 commits, across Portfolio and Vetra; private repos never queried.
+
+**Limitations.** Default branch only; org repos only via `extra_repos`; diff truncation is
+character-based.
+
+**Next.** M3: LLM provider, Stage 1 activity understanding, Stage 2 insight discovery, pipeline
+run tables.

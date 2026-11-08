@@ -21,8 +21,8 @@ Legend: [ ] pending · [~] in progress · [x] done · [!] blocked on user
 
 ## Phase 4 — Core MVP
 - [x] M0 Backend scaffold, config, DB, migrations, auth, health, compose (8 tests)
-- [ ] Journal + quests + check-ins
-- [ ] GitHub source
+- [x] M1 Journal + quests + check-ins + preferences + CLI (16 tests)
+- [x] M2 GitHub source: public-only sync, email-or-login author match, diff opt-in, repo settings (11 tests, real sync verified)
 - [ ] Stage 1 activity understanding
 - [ ] Stage 2 insight discovery
 - [ ] Stage 3 content strategy

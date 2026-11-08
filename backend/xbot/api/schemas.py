@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator
 
 from xbot.db.models import DayDecision, EntryKind, EntrySource, QuestStatus
 
@@ -36,6 +37,24 @@ class CheckinOut(BaseModel):
     answered_at: datetime | None
 
 
+class CommitOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    sha: str
+    repo_full_name: str
+    authored_at: datetime
+    message: str
+    additions: int
+    deletions: int
+    html_url: str
+    files: list[dict[str, Any]]
+    diff: str | None = Field(default=None, exclude=True)
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def has_diff(self) -> bool:
+        return self.diff is not None
+
+
 class DayView(BaseModel):
     local_date: date
     exists: bool
@@ -45,6 +64,7 @@ class DayView(BaseModel):
     quests: list[QuestOut]
     entries: list[EntryOut]
     checkins: list[CheckinOut]
+    commits: list[CommitOut] = Field(default_factory=list)
 
 
 class QuestsIn(BaseModel):

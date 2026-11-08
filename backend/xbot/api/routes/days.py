@@ -10,6 +10,7 @@ from xbot.api.deps import SessionDep, SettingsDep, require_auth
 from xbot.api.schemas import (
     CheckinAnswerIn,
     CheckinOut,
+    CommitOut,
     DayView,
     EntryIn,
     EntryOut,
@@ -18,13 +19,15 @@ from xbot.api.schemas import (
     QuestsIn,
     QuestStatusIn,
 )
-from xbot.db.models import Day, DayDecision
+from xbot.db.models import Day, DayDecision, GithubCommit
+from xbot.ingestion.github import list_commits_for_day
 from xbot.services import days as svc
 
 router = APIRouter(tags=["days"], dependencies=[Depends(require_auth)])
 
 
-def _view(local_date: date, day: Day | None) -> DayView:
+def _view(local_date: date, day: Day | None, commits: list[GithubCommit] | None = None) -> DayView:
+    commit_views = [CommitOut.model_validate(c) for c in commits or []]
     if day is None:
         return DayView(
             local_date=local_date,
@@ -35,6 +38,7 @@ def _view(local_date: date, day: Day | None) -> DayView:
             quests=[],
             entries=[],
             checkins=[],
+            commits=commit_views,
         )
     return DayView(
         local_date=day.local_date,
@@ -45,18 +49,23 @@ def _view(local_date: date, day: Day | None) -> DayView:
         quests=[QuestOut.model_validate(q) for q in day.quests],
         entries=[EntryOut.model_validate(e) for e in day.entries],
         checkins=[CheckinOut.model_validate(c) for c in day.checkins],
+        commits=commit_views,
     )
 
 
 @router.get("/days/today", response_model=DayView)
 async def today(session: SessionDep, settings: SettingsDep) -> DayView:
     d = svc.local_today(settings)
-    return _view(d, await svc.get_day(session, d))
+    return _view(d, await svc.get_day(session, d), await list_commits_for_day(session, d))
 
 
 @router.get("/days/{local_date}", response_model=DayView)
 async def day(local_date: date, session: SessionDep) -> DayView:
-    return _view(local_date, await svc.get_day(session, local_date))
+    return _view(
+        local_date,
+        await svc.get_day(session, local_date),
+        await list_commits_for_day(session, local_date),
+    )
 
 
 @router.put("/days/{local_date}/quests", response_model=DayView)

@@ -7,6 +7,7 @@ from enum import StrEnum
 from typing import Any
 
 from sqlalchemy import (
+    Boolean,
     CheckConstraint,
     Date,
     DateTime,
@@ -19,7 +20,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy.sql import func
+from sqlalchemy.sql import false, func
 
 from xbot.db.base import Base, TimestampMixin
 
@@ -140,6 +141,52 @@ class Checkin(Base):
     day: Mapped[Day] = relationship(back_populates="checkins")
 
 
+class RepoSetting(TimestampMixin, Base):
+    __tablename__ = "repo_settings"
+
+    repo_full_name: Mapped[str] = mapped_column(String(200), primary_key=True)
+    include_diffs: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default=false(), nullable=False
+    )
+    excluded: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default=false(), nullable=False
+    )
+
+
+class GithubCommit(Base):
+    __tablename__ = "github_commits"
+
+    sha: Mapped[str] = mapped_column(String(40), primary_key=True)
+    repo_full_name: Mapped[str] = mapped_column(String(200), nullable=False, index=True)
+    local_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    authored_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    author_email: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    author_login: Mapped[str | None] = mapped_column(String(64))
+    message: Mapped[str] = mapped_column(Text, nullable=False)
+    additions: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    deletions: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    files: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False, default=list)
+    html_url: Mapped[str] = mapped_column(String(500), nullable=False, default="")
+    diff: Mapped[str | None] = mapped_column(Text)
+    fetched_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class GithubSync(Base):
+    __tablename__ = "github_syncs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    local_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    synced_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    repos_checked: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    commits_found: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    error: Mapped[str | None] = mapped_column(Text)
+
+
 class Setting(Base):
     __tablename__ = "settings"
 
@@ -157,9 +204,12 @@ __all__ = [
     "DayDecision",
     "EntryKind",
     "EntrySource",
+    "GithubCommit",
+    "GithubSync",
     "JournalEntry",
     "Quest",
     "QuestStatus",
+    "RepoSetting",
     "Setting",
     "TimestampMixin",
 ]
