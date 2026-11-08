@@ -60,3 +60,67 @@ class ScoredInsight(BaseModel):
     weighted_score: float
     eligible: bool
     ineligible_reason: str | None = None
+
+
+# ---- Stages 3–5 ------------------------------------------------------------------------------
+
+Category = Literal[
+    "daily_learning",
+    "build_in_public",
+    "ai_ml_discovery",
+    "engineering_lesson",
+    "dsa_journey",
+    "daily_quest",
+    "project_update",
+    "personal_reflection",
+    "leadership",
+    "weekly_summary",
+]
+Style = Literal[
+    "plain_note", "mini_story", "question_led", "before_after", "code_mention", "reflection"
+]
+
+
+class Strategy(BaseModel):
+    category: Category
+    angle: str
+    style: Style
+    target_chars: int
+    avoid: list[str]
+    reasoning: str
+
+
+class Claim(BaseModel):
+    sentence: str
+    kind: Literal["fact", "opinion"]
+    fact_ids: list[str]
+    hedged: bool
+
+
+class Draft(BaseModel):
+    label: str
+    text: str
+    style_note: str
+    claims: list[Claim]
+
+
+class DraftSet(BaseModel):
+    drafts: list[Draft]
+
+
+class GroundingCheck(BaseModel):
+    claim: str
+    supported: bool
+    note: str
+
+
+class Evaluation(BaseModel):
+    grounding: list[GroundingCheck]
+    worth_sharing: int
+    sounds_human: int
+    technically_correct: bool
+    repetitive: bool
+    reveals_sensitive: bool
+    issues: list[str]
+    verdict: Literal["accept", "revise", "reject"]
+    revision_hint: str

@@ -27,7 +27,7 @@ Legend: [ ] pending · [~] in progress · [x] done · [!] blocked on user
 - [x] D4 model client: Anthropic SDK directly
 - [x] Owner reviewed the LangGraph design; go-ahead given
 - [x] M3 provider + graph core (collect, understand, ask_checkin ⟂, discover) + runner + Postgres checkpointer (21 new tests, 56 total)
-- [ ] M4a strategy, generate, evaluate, revise loop, review interrupt
+- [x] M4a strategy, generate (one draft-set call), evaluate (code checks + model), revise loop, drafts table, review interrupt, publish stub (17 new tests, 73 total)
 - [ ] M4b review and drafts endpoints, CLI review
 
 ## Phase 5 — Publishing

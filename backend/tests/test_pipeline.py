@@ -191,7 +191,7 @@ async def test_empty_day_asks_checkins_then_resumes_without_duplicates(
     r = await auth_client.post(f"/api/pipeline/runs/{run['id']}/checkins/submit")
     assert r.status_code == 202, r.text
     state = await _wait(app, run["id"])
-    assert state["status"] == RunStatus.insights_ready, state
+    assert state["status"] == RunStatus.waiting_review, state
     assert len(llm.calls_for("stage1")) == 1 and len(llm.calls_for("stage2")) == 1
 
     async with app.state.db.session_factory() as session:
@@ -206,13 +206,13 @@ async def test_empty_day_asks_checkins_then_resumes_without_duplicates(
             .scalars()
             .all()
         )
-        assert [(s.stage, s.status) for s in stages] == [(1, "succeeded"), (2, "succeeded")]
+        assert [(s.stage, s.status) for s in stages][:2] == [(1, "succeeded"), (2, "succeeded")]
         assert stages[0].output and stages[0].output["facts"][0]["id"] == "F1"
         assert stages[1].output and stages[1].output["selected"]["title"].startswith("[MOCK]")
     assert state["tokens"] > 0
 
     day = (await auth_client.get(f"/api/days/{D}")).json()
-    assert day["latest_run"]["id"] == run["id"] and day["latest_run"]["status"] == "insights_ready"
+    assert day["latest_run"]["id"] == run["id"] and day["latest_run"]["status"] == "waiting_review"
 
 
 async def test_checkin_round_cap_ends_in_no_post(app: Any, auth_client: httpx.AsyncClient) -> None:
@@ -285,7 +285,7 @@ async def test_double_resume_only_one_wins(app: Any, auth_client: httpx.AsyncCli
         auth_client.post(f"/api/pipeline/runs/{run['id']}/checkins/submit"),
     )
     assert sorted([r1.status_code, r2.status_code]) == [202, 409]
-    assert (await _wait(app, run["id"]))["status"] == RunStatus.insights_ready
+    assert (await _wait(app, run["id"]))["status"] == RunStatus.waiting_review
 
 
 async def test_failure_keeps_checkpoint_and_retry_resumes_only_failed_node(
@@ -304,7 +304,7 @@ async def test_failure_keeps_checkpoint_and_retry_resumes_only_failed_node(
     r = await auth_client.post(f"/api/pipeline/runs/{run['id']}/retry")
     assert r.status_code == 202
     state = await _wait(app, run["id"])
-    assert state["status"] == RunStatus.insights_ready, state
+    assert state["status"] == RunStatus.waiting_review, state
     assert len(llm.calls_for("stage1")) == 2 and len(llm.calls_for("stage2")) == 1
     async with app.state.db.session_factory() as session:
         rows = (
@@ -312,7 +312,7 @@ async def test_failure_keeps_checkpoint_and_retry_resumes_only_failed_node(
             .scalars()
             .all()
         )
-        assert [(r.stage, r.attempt, r.status) for r in rows] == [
+        assert [(r.stage, r.attempt, r.status) for r in rows][:3] == [
             (1, 1, "failed"),
             (1, 2, "succeeded"),
             (2, 1, "succeeded"),
@@ -338,7 +338,7 @@ async def test_recover_resumes_transient_failure_once_and_marks_others_failed(
         await session.commit()
     await app.state.runner.recover()
     state = await _wait(app, run["id"])
-    assert state["status"] == RunStatus.insights_ready, state
+    assert state["status"] == RunStatus.waiting_review, state
     async with app.state.db.session_factory() as session:
         db_run = await session.get(PipelineRun, run["id"])
         assert db_run is not None and db_run.recover_attempts == 1

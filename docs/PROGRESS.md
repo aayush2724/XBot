@@ -121,3 +121,35 @@ been made yet (no API key); the provider's request shape is covered by the paylo
 
 **Next.** M4a: strategy, generate (one draft-set call), evaluate with code checks, revise loop,
 `drafts` table, `review` interrupt node, autonomous bypass.
+
+## 2026-11-08 — M4a complete: strategy, generation, evaluation, review gate
+
+**Implemented.** Stage 3 `strategy` (category, angle, style, length target), Stage 4 `generate`
+(one call producing two or three drafts, each sentence mapped to a claim with cited fact ids
+and a hedged flag), Stage 5 `evaluate` (deterministic checks first: weighted length with links
+counted as 23, link policy, secret patterns, near-duplicate against published posts, sentence
+coverage and claim soundness; then one model evaluation per surviving draft), the revise loop
+(at most two automatic revisions, so three attempts), the `drafts` table (authoritative for
+text, edits and ratings; unique per run, attempt and label; earlier attempts and earlier runs'
+unreviewed drafts are discarded), the `review` interrupt (approve / regenerate with feedback,
+capped at two / reject), the autonomous bypass, and a `publish` node that approves the chosen
+draft and ends the run as `publish_failed` with "no publisher is configured" until M5 wires the
+publisher. Rated drafts feed Stage 4 as liked and disliked examples. Run detail now includes the
+drafts. Migration 0005. The unreachable `insights_ready` status was removed.
+
+**Tests.** 73 passing (17 new): weighted length, URL and secret detection, token-Jaccard
+duplicates, sentence splitting, coverage rules (uncovered sentence, unknown fact id, unhedged
+inferred claim, multi-line sentence covered by one claim); full run to `waiting_review` with two
+accepted drafts and six stage rows; code checks reject an uncovered and a leaky draft before any
+model call; an insight with no confirmed fact is refused before drafting; three failed attempts
+end in `no_post` with revision hints carried into the next prompt; autonomous mode skips review
+and reaches publish; a superseding run discards the previous run's drafts; review approve,
+reject, regenerate-with-feedback and the regeneration cap; approving a non-accepted draft id
+fails safely. ruff and mypy strict clean.
+
+**Limitations.** No publisher yet, so approval ends in `publish_failed` by design until M5. The
+review and draft endpoints arrive in M4b; review routing is tested at the graph level. Recent
+published posts and category cooldown inputs are empty until M5 provides them.
+
+**Next.** M4b: drafts endpoints (list, edit, rate), review endpoint with compare-and-set, CLI
+review, then M5 publishing.

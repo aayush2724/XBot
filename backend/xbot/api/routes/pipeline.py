@@ -9,8 +9,8 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import select
 
 from xbot.api.deps import SessionDep, require_auth
-from xbot.api.schemas import RunDetail, RunOut, StageOut
-from xbot.db.models import PipelineRun, PipelineStageRun, RunTrigger
+from xbot.api.schemas import DraftOut, RunDetail, RunOut, StageOut
+from xbot.db.models import DraftRecord, PipelineRun, PipelineStageRun, RunTrigger
 from xbot.intelligence.runner import PipelineRunner, RunConflict, RunInvalidState, RunNotFound
 
 router = APIRouter(tags=["pipeline"], dependencies=[Depends(require_auth)])
@@ -56,11 +56,23 @@ async def get_run(run_id: int, request: Request, session: SessionDep) -> RunDeta
         .order_by(PipelineStageRun.stage, PipelineStageRun.attempt)
     )
     stages = (await session.execute(stmt)).scalars().all()
+    drafts = (
+        (
+            await session.execute(
+                select(DraftRecord)
+                .where(DraftRecord.run_id == run_id)
+                .order_by(DraftRecord.attempt, DraftRecord.label)
+            )
+        )
+        .scalars()
+        .all()
+    )
     return RunDetail(
         **RunOut.model_validate(run).model_dump(),
         next_nodes=next_nodes,
         waiting_for=waiting,
         stages=[StageOut.model_validate(s) for s in stages],
+        drafts=[DraftOut.model_validate(d) for d in drafts],
     )
 
 

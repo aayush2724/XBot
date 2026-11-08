@@ -58,7 +58,6 @@ class RunStatus(StrEnum):
     running = "running"
     waiting_checkin = "waiting_checkin"
     waiting_review = "waiting_review"
-    insights_ready = "insights_ready"
     published = "published"
     no_post = "no_post"
     publish_failed = "publish_failed"
@@ -73,6 +72,15 @@ LIVE_RUN_STATUSES = (RunStatus.running, RunStatus.waiting_checkin, RunStatus.wai
 class RunTrigger(StrEnum):
     scheduled = "scheduled"
     manual = "manual"
+
+
+class DraftStatus(StrEnum):
+    candidate = "candidate"
+    rejected = "rejected"
+    accepted = "accepted"
+    approved = "approved"
+    published = "published"
+    discarded = "discarded"
 
 
 def _enum(enum_cls: type[StrEnum], name: str) -> Enum:
@@ -227,6 +235,37 @@ class PipelineStageRun(Base):
     )
 
 
+class DraftRecord(TimestampMixin, Base):
+    """A generated post draft. Authoritative for text, edits and ratings; the graph state only
+    holds draft ids."""
+
+    __tablename__ = "drafts"
+    __table_args__ = (
+        UniqueConstraint("run_id", "attempt", "label", name="uq_drafts_run_attempt_label"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    run_id: Mapped[int] = mapped_column(
+        ForeignKey("pipeline_runs.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    local_date: Mapped[date] = mapped_column(
+        ForeignKey("days.local_date", ondelete="CASCADE"), nullable=False, index=True
+    )
+    attempt: Mapped[int] = mapped_column(Integer, nullable=False)
+    label: Mapped[str] = mapped_column(String(8), nullable=False)
+    category: Mapped[str | None] = mapped_column(String(32))
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    edited_text: Mapped[str | None] = mapped_column(Text)
+    style_note: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    claims: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False, default=list)
+    evaluation: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    status: Mapped[DraftStatus] = mapped_column(
+        _enum(DraftStatus, "draft_status"), default=DraftStatus.candidate, nullable=False
+    )
+    rating: Mapped[int | None] = mapped_column(Integer)
+    feedback: Mapped[str | None] = mapped_column(Text)
+
+
 class RepoSetting(TimestampMixin, Base):
     __tablename__ = "repo_settings"
 
@@ -288,6 +327,8 @@ __all__ = [
     "Checkin",
     "Day",
     "DayDecision",
+    "DraftRecord",
+    "DraftStatus",
     "EntryKind",
     "EntrySource",
     "GithubCommit",

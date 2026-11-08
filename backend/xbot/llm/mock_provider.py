@@ -70,7 +70,7 @@ def _default_output(schema: type[BaseModel], user: str) -> BaseModel:
         facts = [
             s.Fact(
                 kind="activity",
-                text=f"[MOCK] {str(i.get('content', ''))[:120]}",
+                text="[MOCK] " + " ".join(str(i.get("content", "")).split())[:120],
                 confidence="confirmed" if i.get("status") != "planned" else "inferred",
                 source_refs=[i["ref_id"]],
             )
@@ -101,5 +101,56 @@ def _default_output(schema: type[BaseModel], user: str) -> BaseModel:
             ],
             nothing_worth_sharing=False,
             reason="[MOCK] one plausible insight",
+        )
+    if schema is s.Strategy:
+        return s.Strategy(
+            category="build_in_public",
+            angle="[MOCK] a plain note about what got built",
+            style="plain_note",
+            target_chars=min(240, int(payload.get("max_chars", 280))),
+            avoid=list(payload.get("phrases_to_avoid", [])),
+            reasoning="[MOCK] default strategy",
+        )
+    if schema is s.DraftSet:
+        fact_dicts = [f for f in payload.get("facts", []) if isinstance(f, dict) and f.get("id")]
+        confirmed = [f for f in fact_dicts if f.get("confidence") == "confirmed"] or fact_dicts
+        if not confirmed:
+            return s.DraftSet(drafts=[])
+        fact: dict[str, Any] = confirmed[0]
+        hedged = fact.get("confidence") != "confirmed"
+        drafts = []
+        for label, lead in (("A", "Today"), ("B", "Small win")):
+            sentence = f"[MOCK] {lead}: " + " ".join(str(fact.get("text", "")).split())[:140] + "."
+            drafts.append(
+                s.Draft(
+                    label=label,
+                    text=sentence,
+                    style_note=f"[MOCK] {label}",
+                    claims=[
+                        s.Claim(
+                            sentence=sentence, kind="fact", fact_ids=[fact["id"]], hedged=hedged
+                        )
+                    ],
+                )
+            )
+        return s.DraftSet(drafts=drafts)
+    if schema is s.Evaluation:
+        claims = [c for c in payload.get("claims", []) if isinstance(c, dict)]
+        return s.Evaluation(
+            grounding=[
+                s.GroundingCheck(
+                    claim=str(c.get("sentence", ""))[:120], supported=True, note="[MOCK]"
+                )
+                for c in claims
+                if c.get("kind") == "fact"
+            ],
+            worth_sharing=4,
+            sounds_human=4,
+            technically_correct=True,
+            repetitive=False,
+            reveals_sensitive=False,
+            issues=[],
+            verdict="accept",
+            revision_hint="",
         )
     raise LLMError(f"mock provider has no default for schema {schema.__name__}")

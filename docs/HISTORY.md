@@ -237,3 +237,25 @@ pushed and now tracks `origin/main`.
 which is also the author email on every commit and on their other public repositories, so there
 was nothing further to scrub. Secrets live only in the git-ignored `.env`. The advice to start
 private stands as a preference, not a requirement; the owner chose public.
+
+### 20. M4a: the pipeline reaches the review gate
+
+**What.** Stages 3 to 5, the revise loop, the drafts table, the review interrupt and the
+autonomous bypass were built on the M3 graph. 73 tests pass.
+
+**Why these shapes.**
+- One draft-set call instead of a parallel fan-out: the advisor showed it costs a third as much
+  and the style directives in the prompt keep the drafts distinct (design rev 3).
+- Deterministic checks run before the model: a leaked secret, an over-long post or a sentence
+  with no supporting claim should never cost a model call or reach the owner.
+- The `drafts` table is authoritative and the graph holds ids only, because the owner edits and
+  rates drafts while the run waits at the interrupt.
+- `publish` ends as `publish_failed` with an explicit reason when no publisher is configured,
+  rather than pretending to post; M5 replaces the reason with a real publication.
+
+**Incidents.** The M3 tests asserted an `insights_ready` terminal state that stopped existing
+once the graph continued past Stage 2; the assertions moved to `waiting_review` and the status
+was removed. Two tests then failed because the mock's default fact text carried a newline from
+the check-in "Q/A" format, which the sentence splitter treated as two sentences; the mock now
+emits single-line text, and the coverage rule also accepts a fragment contained in a claimed
+sentence so real multi-line posts are not rejected unfairly.

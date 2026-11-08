@@ -7,7 +7,15 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator
 
-from xbot.db.models import DayDecision, EntryKind, EntrySource, QuestStatus, RunStatus, RunTrigger
+from xbot.db.models import (
+    DayDecision,
+    DraftStatus,
+    EntryKind,
+    EntrySource,
+    QuestStatus,
+    RunStatus,
+    RunTrigger,
+)
 
 
 class QuestOut(BaseModel):
@@ -88,10 +96,28 @@ class StageOut(BaseModel):
     output: dict[str, Any] | None
 
 
+class DraftOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    run_id: int
+    attempt: int
+    label: str
+    category: str | None
+    text: str
+    edited_text: str | None
+    style_note: str
+    claims: list[dict[str, Any]]
+    evaluation: dict[str, Any] | None
+    status: DraftStatus
+    rating: int | None
+    feedback: str | None
+
+
 class RunDetail(RunOut):
     next_nodes: list[str] = Field(default_factory=list)
     waiting_for: dict[str, Any] | None = None
     stages: list[StageOut] = Field(default_factory=list)
+    drafts: list[DraftOut] = Field(default_factory=list)
 
 
 class DayView(BaseModel):

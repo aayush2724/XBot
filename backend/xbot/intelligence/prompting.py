@@ -49,3 +49,72 @@ def stage2_user(facts: list[dict[str, Any]], memory: dict[str, Any], min_score: 
             "min_insight_score": min_score,
         }
     )
+
+
+def stage3_user(
+    insight: dict[str, Any],
+    facts: list[dict[str, Any]],
+    memory: dict[str, Any],
+    *,
+    max_chars: int,
+    cooldown_days: int,
+    last_categories: list[str],
+) -> str:
+    return dump_evidence(
+        {
+            "selected_insight": insight,
+            "facts": facts,
+            "recent_posts": memory.get("recent_posts", []),
+            "category_counts_14d": memory.get("category_counts_14d", {}),
+            "categories_in_cooldown": last_categories,
+            "category_cooldown_days": cooldown_days,
+            "max_chars": max_chars,
+            "phrases_to_avoid": memory.get("phrases_to_avoid", []),
+        }
+    )
+
+
+def stage4_user(
+    insight: dict[str, Any],
+    strategy: dict[str, Any],
+    facts: list[dict[str, Any]],
+    memory: dict[str, Any],
+    *,
+    attempt: int,
+    revision_hints: list[str],
+    max_chars: int,
+    allow_links: bool,
+) -> str:
+    return dump_evidence(
+        {
+            "attempt": attempt,
+            "revision_hints": revision_hints,
+            "selected_insight": insight,
+            "strategy": strategy,
+            "facts": facts,
+            "max_chars": max_chars,
+            "links_allowed": allow_links,
+            "liked_examples": memory.get("liked_examples", []),
+            "disliked_examples": memory.get("disliked_examples", []),
+            "phrases_to_avoid": memory.get("phrases_to_avoid", []),
+        }
+    )
+
+
+def stage5_user(
+    draft_text: str,
+    claims: list[dict[str, Any]],
+    facts: list[dict[str, Any]],
+    memory: dict[str, Any],
+    *,
+    max_chars: int,
+) -> str:
+    return dump_evidence(
+        {
+            "draft": draft_text,
+            "claims": claims,
+            "facts": facts,
+            "recent_posts": memory.get("recent_posts", []),
+            "max_chars": max_chars,
+        }
+    )

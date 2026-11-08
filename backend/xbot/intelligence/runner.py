@@ -22,7 +22,15 @@ from sqlalchemy.exc import IntegrityError
 
 from xbot.config import Settings
 from xbot.db.base import Database
-from xbot.db.models import LIVE_RUN_STATUSES, Checkin, PipelineRun, RunStatus, RunTrigger
+from xbot.db.models import (
+    LIVE_RUN_STATUSES,
+    Checkin,
+    DraftRecord,
+    DraftStatus,
+    PipelineRun,
+    RunStatus,
+    RunTrigger,
+)
 from xbot.intelligence.graph import GRAPH_VERSION, PipelineContext, build_graph
 from xbot.llm.base import TRANSIENT_ERROR_MARKERS, LLMProvider
 from xbot.logging import get_logger
@@ -34,7 +42,6 @@ RECURSION_LIMIT = 50
 MAX_RECOVER_ATTEMPTS = 2
 OUTCOME_TO_STATUS = {
     "no_post": RunStatus.no_post,
-    "insights_ready": RunStatus.insights_ready,
     "published": RunStatus.published,
     "publish_failed": RunStatus.publish_failed,
 }
@@ -137,6 +144,15 @@ class PipelineRunner:
                 task = self._tasks.get(old.id)
                 if task is not None:
                     task.cancel()
+            # Earlier runs' unreviewed drafts for this day are no longer candidates.
+            await session.execute(
+                update(DraftRecord)
+                .where(
+                    DraftRecord.local_date == local_date,
+                    DraftRecord.status.in_([DraftStatus.candidate, DraftStatus.accepted]),
+                )
+                .values(status=DraftStatus.discarded)
+            )
             run = PipelineRun(
                 local_date=local_date,
                 thread_id=f"run:{uuid.uuid4().hex[:12]}",
