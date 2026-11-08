@@ -324,3 +324,15 @@ working instead of failing.
 **Incident.** The local date rolled over to 2026-11-09 during the work, which broke a CLI test
 that seeded drafts for a fixed date while the CLI asks the server for "today". That test now
 uses the real local date.
+
+### 24. Live verification of OpenRouter, and a bug only the live API could show
+
+**What.** With the owner's OpenRouter key in `.env`, each stage schema was sent to Gemini 3.5
+Flash-Lite once with clearly synthetic evidence. The first run failed at Stage 2; after the fix
+all five stages passed in strict mode for about two cents.
+
+**Why it failed.** The strict-schema translator removed `title` keys to drop Pydantic's
+metadata, but it also removed the *field* `Insight.title`. The unit test shared the same blind
+spot, walking field-name maps as if they were schema nodes, so mocked tests passed. This is
+exactly the gap the advisor flagged: mocked HTTP cannot prove a provider accepts the schemas.
+The translator and the test now treat `properties` maps as field names.

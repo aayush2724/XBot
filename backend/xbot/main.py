@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import utils.session
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 

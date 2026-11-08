@@ -22,10 +22,15 @@ STAGE_SCHEMAS = [S.ActivityUnderstanding, S.InsightSet, S.Strategy, S.DraftSet, 
 
 
 def _walk(node: Any) -> Any:
+    """Yield schema nodes only; a `properties` map's keys are field names, not keywords."""
     if isinstance(node, dict):
         yield node
-        for v in node.values():
-            yield from _walk(v)
+        for k, v in node.items():
+            if k == "properties" and isinstance(v, dict):
+                for sub in v.values():
+                    yield from _walk(sub)
+            else:
+                yield from _walk(v)
     elif isinstance(node, list):
         for v in node:
             yield from _walk(v)
@@ -41,6 +46,17 @@ def test_strict_schema_is_self_contained_and_closed(schema: Any) -> None:
         if node.get("type") == "object" and "properties" in node:
             assert node["additionalProperties"] is False
             assert set(node["required"]) == set(node["properties"])
+
+
+@pytest.mark.parametrize("schema", STAGE_SCHEMAS, ids=lambda s: s.__name__)
+def test_strict_schema_keeps_every_field_even_metadata_named_ones(schema: Any) -> None:
+    """Regression: a field literally named "title" was stripped as if it were schema metadata;
+    caught by the first live Gemini call."""
+    js = strict_json_schema(schema)
+    assert set(js["properties"]) == set(schema.model_fields)
+    insight = strict_json_schema(S.InsightSet)["properties"]["insights"]["items"]
+    assert set(insight["properties"]) == set(S.Insight.model_fields)
+    assert "title" in insight["required"]
 
 
 def test_strict_schema_keeps_enums_and_nullable() -> None:

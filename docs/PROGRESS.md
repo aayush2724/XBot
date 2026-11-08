@@ -245,3 +245,19 @@ local date rolled over.
 **Not yet verified against the live API.** Mocked HTTP cannot prove that Gemini accepts the
 translated schemas. Next step once `OPENROUTER_API_KEY` is in `.env`: one live call per stage
 schema, then one real day end to end.
+
+## 2026-11-09 — OpenRouter verified live with Gemini 3.5 Flash-Lite
+
+**Result.** All five stage schemas were accepted by Gemini in strict mode (no JSON-mode
+fallback). Synthetic evidence produced grounded facts (a planned quest correctly marked
+`inferred`), two insights, an `engineering_lesson` strategy, three drafts that each passed the
+deterministic checks, and an `accept` evaluation. Five calls took 25 seconds and cost $0.022.
+
+**Bug found live.** The schema translator stripped every key named `title`, including the
+`Insight.title` field, so Gemini omitted it and validation failed. Field names are now never
+filtered; a regression test checks that every model field survives translation.
+
+**Tests.** 121 passing.
+
+**Next.** One real day end to end through the server (needs a real `XBOT_DASHBOARD_PASSWORD`),
+then M6.

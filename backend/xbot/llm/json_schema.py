@@ -26,6 +26,11 @@ def _inline(node: Any, defs: dict[str, Any], seen: tuple[str, ...] = ()) -> Any:
     for key, value in node.items():
         if key in _DROP_KEYS or key == "$defs":
             continue
+        if key == "properties" and isinstance(value, dict):
+            # Keys here are field names (a field may be called "title"); only their values are
+            # schemas, so recurse into values without filtering the names.
+            out[key] = {name: _inline(sub, defs, seen) for name, sub in value.items()}
+            continue
         out[key] = _inline(value, defs, seen)
     if out.get("type") == "object" and "properties" in out:
         out["additionalProperties"] = False
