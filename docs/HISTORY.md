@@ -216,3 +216,12 @@ migration 0004, Alembic filter for LangGraph's tables, endpoints and CLI command
 **What.** The owner asked for "a file which has all the information of whatever has happened
 with why it has happened." `docs/HISTORY.md` was created with the entries above and the
 maintenance rule at the top; a memory note ensures future sessions keep it current.
+
+### 18. Commit-message attribution removed
+
+**What.** The owner asked that commit messages carry no "Co-Authored-By: Claude" trailer. All ten
+existing commits were rewritten locally to drop the line (messages only; trees unchanged), and
+new commits are written without it. The repository had no remote, so the rewrite affected nothing
+else.
+
+**Why.** The owner wants the project history to read as their own work log.
