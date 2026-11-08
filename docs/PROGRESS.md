@@ -74,3 +74,14 @@ character-based.
 
 **Next.** M3: LLM provider, Stage 1 activity understanding, Stage 2 insight discovery, pipeline
 run tables.
+
+## 2026-11-08 — LangGraph research complete, design revision 3 ready
+
+Owner asked for the pipeline to be built on LangGraph with complete research first. Verified
+versions and signatures on Python 3.14, ran prototype graphs against Docker Postgres (retry
+policy, Send fan-out, interrupt and resume from a new graph object, crash recovery by `None`
+resume, pool-based saver), checked the `ChatAnthropic` request payload offline, and found that
+`error_handler` does not receive the exception. Advisor review folded in. Result:
+`docs/phase-2-langgraph-design.md` (rev 3 final) with a status model, compare-and-set resumes,
+one draft-set call instead of fan-out, bounded recovery, and M3/M4a/M4b/M5 redefined. No pipeline
+code written; awaiting the owner's go-ahead and the model-client decision.

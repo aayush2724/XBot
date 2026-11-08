@@ -1,6 +1,6 @@
 # XBot — Phase 2: Architecture
 
-Date: 2026-11-08 · Status: **locked** (revision 2, after advisor review; see §14)
+Date: 2026-11-08 · Status: **locked** (revision 2, after advisor review; see §14). **§6, §7 and the recovery rule in §9 are superseded by `phase-2-langgraph-design.md` (revision 3, LangGraph).**
 
 Decisions carried in from Phase 1: Claude Opus 5 for every stage, runs on the owner's machine now
 with a deploy-ready Docker Compose for a VPS later, GitHub public repositories only, one post per

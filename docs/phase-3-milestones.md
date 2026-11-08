@@ -1,6 +1,6 @@
 # XBot — Phase 3: Milestones
 
-Status: **locked** (revision 2). Each milestone is independently testable and ends with a summary
+Status: **locked** (revision 2; M3–M5 rows superseded by `phase-2-langgraph-design.md` §13, revision 3). Each milestone is independently testable and ends with a summary
 (implemented, files, tests run, limitations, next). Order is strict.
 
 | # | Milestone | Deliverables | Acceptance criteria | Depends on |

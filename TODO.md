@@ -19,15 +19,15 @@ Legend: [ ] pending · [~] in progress · [x] done · [!] blocked on user
 ## Phase 3 — Implementation planning
 - [x] Milestones with deliverables, dependencies, acceptance criteria (`docs/phase-3-milestones.md`)
 
-## Phase 4 — Core MVP
+## Phase 4 — Core MVP (pipeline on LangGraph per docs/phase-2-langgraph-design.md)
 - [x] M0 Backend scaffold, config, DB, migrations, auth, health, compose (8 tests)
 - [x] M1 Journal + quests + check-ins + preferences + CLI (16 tests)
 - [x] M2 GitHub source: public-only sync, email-or-login author match, diff opt-in, repo settings (11 tests, real sync verified)
-- [ ] Stage 1 activity understanding
-- [ ] Stage 2 insight discovery
-- [ ] Stage 3 content strategy
-- [ ] Stage 4 generation
-- [ ] Stage 5 evaluation
+- [x] LangGraph research: versions, signatures, prototypes (interrupt/resume, crash recovery, pool saver), advisor review
+- [!] Owner go-ahead on revision 3 design and D4 (model client)
+- [ ] M3 provider + graph core (collect, understand, ask_checkin, discover) + runner + checkpointer
+- [ ] M4a strategy, generate, evaluate, revise loop, review interrupt
+- [ ] M4b review and drafts endpoints, CLI review
 
 ## Phase 5 — Publishing
 - [ ] X OAuth 2.0 PKCE connect + token refresh
