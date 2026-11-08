@@ -226,13 +226,14 @@ else.
 
 **Why.** The owner wants the project history to read as their own work log.
 
-### 19. Prepared for the first push to GitHub (private)
+### 19. First push to GitHub
 
-**What.** Before pushing, the full history was scanned for key-shaped strings (none found) and
-the owner's real email in a GitHub-sync test fixture was replaced with a placeholder. The
-repository is to be created private at `github.com/aayush2724/Xbot`.
+**What.** The owner had already created `github.com/aayush2724/XBot` as a **public** repository.
+Before pushing, the full history was scanned for key-shaped strings (none found) and the owner's
+email in a GitHub-sync test fixture was replaced with a placeholder. `main` (13 commits) was
+pushed and now tracks `origin/main`.
 
-**Why private.** The repository holds the owner's personal voice-profile prompt and, in the
-history, the email fixture from M2. Nothing is secret, but there is no reason to publish yet.
-Going public later is a settings change; if that happens, consider whether the earlier fixture
-commit matters (the email is already visible in the owner's public commit metadata).
+**Why public is acceptable.** The only personal detail in the history is the owner's git email,
+which is also the author email on every commit and on their other public repositories, so there
+was nothing further to scrub. Secrets live only in the git-ignored `.env`. The advice to start
+private stands as a preference, not a requirement; the owner chose public.
