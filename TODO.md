@@ -24,7 +24,8 @@ Legend: [ ] pending · [~] in progress · [x] done · [!] blocked on user
 - [x] M1 Journal + quests + check-ins + preferences + CLI (16 tests)
 - [x] M2 GitHub source: public-only sync, email-or-login author match, diff opt-in, repo settings (11 tests, real sync verified)
 - [x] LangGraph research: versions, signatures, prototypes (interrupt/resume, crash recovery, pool saver), advisor review
-- [!] Owner go-ahead on revision 3 design and D4 (model client)
+- [x] D4 model client: Anthropic SDK directly
+- [!] Owner reviewing docs/phase-2-langgraph-design.md before M3 starts
 - [ ] M3 provider + graph core (collect, understand, ask_checkin, discover) + runner + checkpointer
 - [ ] M4a strategy, generate, evaluate, revise loop, review interrupt
 - [ ] M4b review and drafts endpoints, CLI review

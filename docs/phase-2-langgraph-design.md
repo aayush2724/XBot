@@ -1,6 +1,6 @@
 # XBot — Intelligence layer on LangGraph (architecture revision 3)
 
-Date: 2026-11-08 · Status: **final draft, awaiting owner go-ahead before any code**
+Date: 2026-11-08 · Status: **final draft under owner review; model client decided: Anthropic SDK directly**
 Supersedes §6 (pipeline), §7 (approval flow) and the recovery rule in §9 of
 `phase-2-architecture.md`. Everything else in that document stands. Advisor-reviewed; the changes
 made after review are listed in §14.
@@ -199,7 +199,7 @@ finished as `failed: superseded by graph vN` at startup rather than resumed.
 
 The `LLMProvider` protocol and `MockLLMProvider` stay as designed; nodes see only the protocol.
 
-**Recommended implementation: the Anthropic SDK directly** (`AsyncAnthropic().messages.parse`
+**Decided (owner, 2026-11-08): the Anthropic SDK directly** (`AsyncAnthropic().messages.parse`
 with `output_format=Schema`, `thinking={"type": "adaptive"}`, `output_config={"effort": ...}`,
 system blocks with one `cache_control`), as verified in rev 2. Reasons: one layer fewer, exact
 control of `stop_reason` and `stop_details`, cache-token accounting straight from
